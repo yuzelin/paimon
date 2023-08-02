@@ -225,7 +225,8 @@ The command to recover from previous snapshot and add new tables to synchronize 
 ```
 
 {{< hint info >}}
-You can set `--mode combined` to enable synchronizing newly added tables without restarting job.
+For newly created tables (that means they don't have history data), you can set `--mode combined` to enable synchronizing 
+them without restarting job.
 {{< /hint >}}
 
 Example 3: synchronize and merge multiple shards

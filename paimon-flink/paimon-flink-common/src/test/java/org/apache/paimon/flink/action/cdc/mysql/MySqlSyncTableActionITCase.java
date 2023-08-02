@@ -35,8 +35,6 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -92,14 +90,8 @@ public class MySqlSyncTableActionITCase extends MySqlActionITCaseBase {
         checkTableSchema(
                 "[{\"id\":0,\"name\":\"pt\",\"type\":\"INT NOT NULL\",\"description\":\"primary\"},{\"id\":1,\"name\":\"_id\",\"type\":\"INT NOT NULL\",\"description\":\"_id\"},{\"id\":2,\"name\":\"v1\",\"type\":\"VARCHAR(10)\",\"description\":\"v1\"}]");
 
-        try (Connection conn =
-                DriverManager.getConnection(
-                        MYSQL_CONTAINER.getJdbcUrl(DATABASE_NAME),
-                        MYSQL_CONTAINER.getUsername(),
-                        MYSQL_CONTAINER.getPassword())) {
-            try (Statement statement = conn.createStatement()) {
-                testSchemaEvolutionImpl(statement);
-            }
+        try (Statement statement = getStatement()) {
+            testSchemaEvolutionImpl(statement);
         }
     }
 
@@ -283,14 +275,8 @@ public class MySqlSyncTableActionITCase extends MySqlActionITCaseBase {
         checkTableSchema(
                 "[{\"id\":0,\"name\":\"_id\",\"type\":\"INT NOT NULL\",\"description\":\"primary\"},{\"id\":1,\"name\":\"v1\",\"type\":\"VARCHAR(10)\",\"description\":\"v1\"},{\"id\":2,\"name\":\"v2\",\"type\":\"INT\",\"description\":\"v2\"},{\"id\":3,\"name\":\"v3\",\"type\":\"VARCHAR(10)\",\"description\":\"v3\"}]");
 
-        try (Connection conn =
-                DriverManager.getConnection(
-                        MYSQL_CONTAINER.getJdbcUrl(DATABASE_NAME),
-                        MYSQL_CONTAINER.getUsername(),
-                        MYSQL_CONTAINER.getPassword())) {
-            try (Statement statement = conn.createStatement()) {
-                testSchemaEvolutionMultipleImpl(statement);
-            }
+        try (Statement statement = getStatement()) {
+            testSchemaEvolutionMultipleImpl(statement);
         }
     }
 
@@ -378,14 +364,8 @@ public class MySqlSyncTableActionITCase extends MySqlActionITCaseBase {
         JobClient client = env.executeAsync();
         waitJobRunning(client);
 
-        try (Connection conn =
-                DriverManager.getConnection(
-                        MYSQL_CONTAINER.getJdbcUrl(DATABASE_NAME),
-                        MYSQL_CONTAINER.getUsername(),
-                        MYSQL_CONTAINER.getPassword())) {
-            try (Statement statement = conn.createStatement()) {
-                testAllTypesImpl(statement);
-            }
+        try (Statement statement = getStatement()) {
+            testAllTypesImpl(statement);
         }
 
         client.cancel().get();
@@ -827,12 +807,7 @@ public class MySqlSyncTableActionITCase extends MySqlActionITCaseBase {
         waitJobRunning(client);
 
         if (executeMysql) {
-            try (Connection conn =
-                            DriverManager.getConnection(
-                                    MYSQL_CONTAINER.getJdbcUrl(DATABASE_NAME),
-                                    MYSQL_CONTAINER.getUsername(),
-                                    MYSQL_CONTAINER.getPassword());
-                    Statement statement = conn.createStatement()) {
+            try (Statement statement = getStatement()) {
                 statement.execute("USE paimon_sync_table");
                 statement.executeUpdate(
                         "INSERT INTO test_computed_column VALUES (1, '2023-03-23', '2022-01-01 14:30', '2021-09-15 15:00:10')");
@@ -921,12 +896,7 @@ public class MySqlSyncTableActionITCase extends MySqlActionITCaseBase {
         JobClient client = env.executeAsync();
         waitJobRunning(client);
 
-        try (Connection conn =
-                        DriverManager.getConnection(
-                                MYSQL_CONTAINER.getJdbcUrl(DATABASE_NAME),
-                                MYSQL_CONTAINER.getUsername(),
-                                MYSQL_CONTAINER.getPassword());
-                Statement statement = conn.createStatement()) {
+        try (Statement statement = getStatement()) {
             statement.execute("USE paimon_sync_table");
             statement.executeUpdate(
                     "INSERT INTO test_tinyint1_convert VALUES (1, '2021-09-15 15:00:10', 21)");
@@ -981,14 +951,8 @@ public class MySqlSyncTableActionITCase extends MySqlActionITCaseBase {
         checkTableSchema(
                 "[{\"id\":0,\"name\":\"pt\",\"type\":\"INT NOT NULL\",\"description\":\"primary\"},{\"id\":1,\"name\":\"_id\",\"type\":\"INT NOT NULL\",\"description\":\"_id\"},{\"id\":2,\"name\":\"v1\",\"type\":\"VARCHAR(10)\",\"description\":\"v1\"}]");
 
-        try (Connection conn =
-                DriverManager.getConnection(
-                        MYSQL_CONTAINER.getJdbcUrl(DATABASE_NAME),
-                        MYSQL_CONTAINER.getUsername(),
-                        MYSQL_CONTAINER.getPassword())) {
-            try (Statement statement = conn.createStatement()) {
-                testSchemaEvolutionImplWithTinyIntConvert(statement);
-            }
+        try (Statement statement = getStatement()) {
+            testSchemaEvolutionImplWithTinyIntConvert(statement);
         }
     }
 
@@ -1059,12 +1023,7 @@ public class MySqlSyncTableActionITCase extends MySqlActionITCaseBase {
         JobClient client = env.executeAsync();
         waitJobRunning(client);
 
-        try (Connection conn =
-                        DriverManager.getConnection(
-                                MYSQL_CONTAINER.getJdbcUrl(DATABASE_NAME),
-                                MYSQL_CONTAINER.getUsername(),
-                                MYSQL_CONTAINER.getPassword());
-                Statement statement = conn.createStatement()) {
+        try (Statement statement = getStatement()) {
             statement.execute("USE shard_1");
             statement.executeUpdate("INSERT INTO t1 VALUES (1, '2023-07-30'), (2, '2023-07-30')");
             statement.execute("USE shard_2");

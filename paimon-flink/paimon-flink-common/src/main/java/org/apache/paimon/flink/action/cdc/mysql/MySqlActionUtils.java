@@ -335,7 +335,7 @@ public class MySqlActionUtils {
         return sourceBuilder
                 .deserializer(schema)
                 .includeSchemaChanges(true)
-                .scanNewlyAddedTableEnabled(scanNewlyAddedTables)
+                // .scanNewlyAddedTableEnabled(scanNewlyAddedTables)
                 .build();
     }
 

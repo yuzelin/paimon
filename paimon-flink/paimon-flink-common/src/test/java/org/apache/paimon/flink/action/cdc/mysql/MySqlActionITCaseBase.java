@@ -34,6 +34,10 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.lifecycle.Startables;
 
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -115,6 +119,7 @@ public class MySqlActionITCaseBase extends ActionITCaseBase {
                             rowType);
             List<String> sortedActual = new ArrayList<>(result);
             Collections.sort(sortedActual);
+            System.out.println(sortedActual);
             if (sortedExpected.equals(sortedActual)) {
                 break;
             }
@@ -154,5 +159,14 @@ public class MySqlActionITCaseBase extends ActionITCaseBase {
     protected FileStoreTable getFileStoreTable(String tableName) throws Exception {
         Identifier identifier = Identifier.create(database, tableName);
         return (FileStoreTable) catalog().getTable(identifier);
+    }
+
+    protected Statement getStatement() throws SQLException {
+        Connection conn =
+                DriverManager.getConnection(
+                        MYSQL_CONTAINER.getJdbcUrl(),
+                        MYSQL_CONTAINER.getUsername(),
+                        MYSQL_CONTAINER.getPassword());
+        return conn.createStatement();
     }
 }

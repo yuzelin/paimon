@@ -45,8 +45,6 @@ import org.junit.jupiter.api.io.TempDir;
 
 import javax.annotation.Nullable;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
@@ -69,12 +67,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 /** IT cases for {@link MySqlSyncDatabaseAction}. */
 public class MySqlSyncDatabaseActionITCase extends MySqlActionITCaseBase {
 
-    private static final String DATABASE_NAME = "paimon_sync_database";
-
-    private static final String DATABASE_NAME_TINYINT_CONVERT =
-            "paimon_sync_database_tinyint_schema";
-
-    private static final String DATABASE_NAME_TINYINT = "paimon_sync_database_tinyint";
     @TempDir java.nio.file.Path tempDir;
 
     @BeforeAll
@@ -87,7 +79,7 @@ public class MySqlSyncDatabaseActionITCase extends MySqlActionITCaseBase {
     @Timeout(60)
     public void testSchemaEvolution() throws Exception {
         Map<String, String> mySqlConfig = getBasicMySqlConfig();
-        mySqlConfig.put("database-name", DATABASE_NAME);
+        mySqlConfig.put("database-name", "paimon_sync_database");
 
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(2);
@@ -107,14 +99,8 @@ public class MySqlSyncDatabaseActionITCase extends MySqlActionITCaseBase {
         JobClient client = env.executeAsync();
         waitJobRunning(client);
 
-        try (Connection conn =
-                DriverManager.getConnection(
-                        MYSQL_CONTAINER.getJdbcUrl(DATABASE_NAME),
-                        MYSQL_CONTAINER.getUsername(),
-                        MYSQL_CONTAINER.getPassword())) {
-            try (Statement statement = conn.createStatement()) {
-                testSchemaEvolutionImpl(statement);
-            }
+        try (Statement statement = getStatement()) {
+            testSchemaEvolutionImpl(statement);
         }
     }
 
@@ -235,7 +221,7 @@ public class MySqlSyncDatabaseActionITCase extends MySqlActionITCaseBase {
     @Timeout(60)
     public void testSchemaEvolutionWithTinyInt1Convert() throws Exception {
         Map<String, String> mySqlConfig = getBasicMySqlConfig();
-        mySqlConfig.put("database-name", DATABASE_NAME_TINYINT_CONVERT);
+        mySqlConfig.put("database-name", "paimon_sync_database_tinyint_schema");
         mySqlConfig.put("mysql.converter.tinyint1-to-bool", "false");
 
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
@@ -256,14 +242,8 @@ public class MySqlSyncDatabaseActionITCase extends MySqlActionITCaseBase {
         JobClient client = env.executeAsync();
         waitJobRunning(client);
 
-        try (Connection conn =
-                DriverManager.getConnection(
-                        MYSQL_CONTAINER.getJdbcUrl(DATABASE_NAME),
-                        MYSQL_CONTAINER.getUsername(),
-                        MYSQL_CONTAINER.getPassword())) {
-            try (Statement statement = conn.createStatement()) {
-                testSchemaEvolutionImplWithTinyInt1Convert(statement);
-            }
+        try (Statement statement = getStatement()) {
+            testSchemaEvolutionImplWithTinyInt1Convert(statement);
         }
     }
 
@@ -271,7 +251,7 @@ public class MySqlSyncDatabaseActionITCase extends MySqlActionITCaseBase {
         FileStoreTable table1 = getFileStoreTable("schema_evolution_4");
         FileStoreTable table2 = getFileStoreTable("schema_evolution_5");
 
-        statement.executeUpdate("USE " + DATABASE_NAME_TINYINT_CONVERT);
+        statement.executeUpdate("USE paimon_sync_database_tinyint_schema");
 
         statement.executeUpdate("INSERT INTO schema_evolution_4 VALUES (1, 'one')");
         statement.executeUpdate("INSERT INTO schema_evolution_5 VALUES (2, 'two', 21)");
@@ -331,7 +311,7 @@ public class MySqlSyncDatabaseActionITCase extends MySqlActionITCaseBase {
     @Test
     public void testSpecifiedMySqlTable() {
         Map<String, String> mySqlConfig = getBasicMySqlConfig();
-        mySqlConfig.put("database-name", DATABASE_NAME);
+        mySqlConfig.put("database-name", "paimon_sync_database");
         mySqlConfig.put("table-name", "my_table");
 
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
@@ -419,12 +399,7 @@ public class MySqlSyncDatabaseActionITCase extends MySqlActionITCaseBase {
         waitJobRunning(client);
 
         // validate `compatible` can be synchronized
-        try (Connection conn =
-                        DriverManager.getConnection(
-                                MYSQL_CONTAINER.getJdbcUrl(DATABASE_NAME),
-                                MYSQL_CONTAINER.getUsername(),
-                                MYSQL_CONTAINER.getPassword());
-                Statement statement = conn.createStatement()) {
+        try (Statement statement = getStatement()) {
             FileStoreTable table = getFileStoreTable("compatible");
 
             statement.executeUpdate("USE paimon_sync_database_ignore_incompatible");
@@ -488,12 +463,7 @@ public class MySqlSyncDatabaseActionITCase extends MySqlActionITCaseBase {
         JobClient client = env.executeAsync();
         waitJobRunning(client);
 
-        try (Connection conn =
-                        DriverManager.getConnection(
-                                MYSQL_CONTAINER.getJdbcUrl(DATABASE_NAME),
-                                MYSQL_CONTAINER.getUsername(),
-                                MYSQL_CONTAINER.getPassword());
-                Statement statement = conn.createStatement()) {
+        try (Statement statement = getStatement()) {
             testTableAffixImpl(statement);
         }
     }
@@ -699,12 +669,7 @@ public class MySqlSyncDatabaseActionITCase extends MySqlActionITCaseBase {
                 JsonSerdeUtil.toFlatJson(table.schema().fields()));
 
         // check sync schema changes and records
-        try (Connection conn =
-                        DriverManager.getConnection(
-                                MYSQL_CONTAINER.getJdbcUrl(DATABASE_NAME),
-                                MYSQL_CONTAINER.getUsername(),
-                                MYSQL_CONTAINER.getPassword());
-                Statement statement = conn.createStatement()) {
+        try (Statement statement = getStatement()) {
             statement.executeUpdate("USE paimon_ignore_CASE");
             statement.executeUpdate("INSERT INTO T VALUES (1, 'Hi')");
             RowType rowType1 =
@@ -747,35 +712,36 @@ public class MySqlSyncDatabaseActionITCase extends MySqlActionITCaseBase {
 
     @Test
     @Timeout(600)
-    public void testNewlyAddedTables() throws Exception {
-        testNewlyAddedTable(1, true, false, "paimon_sync_database_newly_added_tables");
+    public void testNewlyCreatedTables() throws Exception {
+        testNewlyCreatedTable(1, true, false, "paimon_sync_database_newly_added_tables");
     }
 
     @Test
     @Timeout(600)
-    public void testNewlyAddedTableSingleTable() throws Exception {
-        testNewlyAddedTable(1, false, false, "paimon_sync_database_newly_added_tables_1");
+    public void testNewlyCreatedTableSingleTable() throws Exception {
+        testNewlyCreatedTable(1, false, false, "paimon_sync_database_newly_added_tables_1");
     }
 
     @Test
     @Timeout(600)
-    public void testNewlyAddedTableMultipleTables() throws Exception {
-        testNewlyAddedTable(3, false, false, "paimon_sync_database_newly_added_tables_2");
+    public void testNewlyCreatedTableMultipleTables() throws Exception {
+        testNewlyCreatedTable(3, false, false, "paimon_sync_database_newly_added_tables_2");
     }
 
     @Test
     @Timeout(600)
-    public void testNewlyAddedTableSchemaChange() throws Exception {
-        testNewlyAddedTable(1, false, true, "paimon_sync_database_newly_added_tables_3");
+    public void testNewlyCreatedTableSchemaChange() throws Exception {
+        testNewlyCreatedTable(1, false, true, "paimon_sync_database_newly_added_tables_3");
     }
 
     @Test
     @Timeout(600)
-    public void testNewlyAddedTableSingleTableWithSavepoint() throws Exception {
-        testNewlyAddedTable(1, true, true, "paimon_sync_database_newly_added_tables_4");
+    public void testNewlyCreatedTableSingleTableWithSavepoint() throws Exception {
+        testNewlyCreatedTable(1, true, true, "paimon_sync_database_newly_added_tables_4");
     }
 
     @Test
+    @Timeout(60)
     public void testAddIgnoredTable() throws Exception {
         String mySqlDatabase = "paimon_sync_database_add_ignored_table";
 
@@ -805,12 +771,7 @@ public class MySqlSyncDatabaseActionITCase extends MySqlActionITCaseBase {
         JobClient client = env.executeAsync();
         waitJobRunning(client);
 
-        try (Connection conn =
-                        DriverManager.getConnection(
-                                MYSQL_CONTAINER.getJdbcUrl(mySqlDatabase),
-                                MYSQL_CONTAINER.getUsername(),
-                                MYSQL_CONTAINER.getPassword());
-                Statement statement = conn.createStatement()) {
+        try (Statement statement = getStatement()) {
 
             FileStoreTable table1 = getFileStoreTable("t1");
 
@@ -857,8 +818,8 @@ public class MySqlSyncDatabaseActionITCase extends MySqlActionITCaseBase {
         }
     }
 
-    public void testNewlyAddedTable(
-            int numOfNewlyAddedTables,
+    public void testNewlyCreatedTable(
+            int numOfNewlyCreatedTables,
             boolean testSavepointRecovery,
             boolean testSchemaChange,
             String databaseName)
@@ -867,27 +828,21 @@ public class MySqlSyncDatabaseActionITCase extends MySqlActionITCaseBase {
                 buildSyncDatabaseActionWithNewlyAddedTables(databaseName, testSchemaChange);
         waitJobRunning(client);
 
-        try (Connection conn =
-                DriverManager.getConnection(
-                        MYSQL_CONTAINER.getJdbcUrl(databaseName),
-                        MYSQL_CONTAINER.getUsername(),
-                        MYSQL_CONTAINER.getPassword())) {
-            try (Statement statement = conn.createStatement()) {
-                testNewlyAddedTableImpl(
-                        client,
-                        statement,
-                        numOfNewlyAddedTables,
-                        testSavepointRecovery,
-                        testSchemaChange,
-                        databaseName);
-            }
+        try (Statement statement = getStatement()) {
+            testNewlyCreatedTableImpl(
+                    client,
+                    statement,
+                    numOfNewlyCreatedTables,
+                    testSavepointRecovery,
+                    testSchemaChange,
+                    databaseName);
         }
     }
 
-    private void testNewlyAddedTableImpl(
+    private void testNewlyCreatedTableImpl(
             JobClient client,
             Statement statement,
-            int newlyAddedTableCount,
+            int newlyCreatedTableCount,
             boolean testSavepointRecovery,
             boolean testSchemaChange,
             String databaseName)
@@ -968,7 +923,7 @@ public class MySqlSyncDatabaseActionITCase extends MySqlActionITCaseBase {
         FileStoreTable newTable = getFileStoreTable(newTableName);
         waitForResult(newTableExpected, newTable, newTableRowType, newTablePrimaryKeys);
 
-        for (newTableCount = 1; newTableCount < newlyAddedTableCount; ++newTableCount) {
+        for (newTableCount = 1; newTableCount < newlyCreatedTableCount; ++newTableCount) {
             // create new table
             newTableName = getNewTableName(newTableCount);
             createNewTable(statement, newTableName);
@@ -987,7 +942,7 @@ public class MySqlSyncDatabaseActionITCase extends MySqlActionITCaseBase {
         ThreadLocalRandom random = ThreadLocalRandom.current();
 
         // pick a random newly added table and insert records
-        int pick = random.nextInt(newlyAddedTableCount);
+        int pick = random.nextInt(newlyCreatedTableCount);
         String tableName = getNewTableName(pick);
         List<Tuple2<Integer, String>> records = recordsMap.get(tableName);
         records.add(Tuple2.of(80, "eighty"));
@@ -1001,7 +956,7 @@ public class MySqlSyncDatabaseActionITCase extends MySqlActionITCaseBase {
 
         // test schema change
         if (testSchemaChange) {
-            pick = random.nextInt(newlyAddedTableCount);
+            pick = random.nextInt(newlyCreatedTableCount);
             tableName = getNewTableName(pick);
             records = recordsMap.get(tableName);
 
@@ -1129,7 +1084,7 @@ public class MySqlSyncDatabaseActionITCase extends MySqlActionITCaseBase {
     @Timeout(60)
     public void testTinyInt1Convert() throws Exception {
         Map<String, String> mySqlConfig = getBasicMySqlConfig();
-        mySqlConfig.put("database-name", DATABASE_NAME_TINYINT);
+        mySqlConfig.put("database-name", "paimon_sync_database_tinyint");
         mySqlConfig.put("mysql.converter.tinyint1-to-bool", "false");
 
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
@@ -1150,14 +1105,8 @@ public class MySqlSyncDatabaseActionITCase extends MySqlActionITCaseBase {
         JobClient client = env.executeAsync();
         waitJobRunning(client);
 
-        try (Connection conn =
-                DriverManager.getConnection(
-                        MYSQL_CONTAINER.getJdbcUrl(DATABASE_NAME),
-                        MYSQL_CONTAINER.getUsername(),
-                        MYSQL_CONTAINER.getPassword())) {
-            try (Statement statement = conn.createStatement()) {
-                testTinyInt1Convert(statement);
-            }
+        try (Statement statement = getStatement()) {
+            testTinyInt1Convert(statement);
         }
     }
 
@@ -1224,12 +1173,8 @@ public class MySqlSyncDatabaseActionITCase extends MySqlActionITCaseBase {
         JobClient client = env.executeAsync();
         waitJobRunning(client);
 
-        try (Connection conn =
-                        DriverManager.getConnection(
-                                MYSQL_CONTAINER.getJdbcUrl(databaseName),
-                                MYSQL_CONTAINER.getUsername(),
-                                MYSQL_CONTAINER.getPassword());
-                Statement statement = conn.createStatement()) {
+        try (Statement statement = getStatement()) {
+            statement.executeUpdate("USE " + databaseName);
             // wait checkpointing to step into incremental phase
             Thread.sleep(2_000);
 
@@ -1288,12 +1233,7 @@ public class MySqlSyncDatabaseActionITCase extends MySqlActionITCaseBase {
         JobClient client = env.executeAsync();
         waitJobRunning(client);
 
-        try (Connection conn =
-                        DriverManager.getConnection(
-                                MYSQL_CONTAINER.getJdbcUrl(DATABASE_NAME),
-                                MYSQL_CONTAINER.getUsername(),
-                                MYSQL_CONTAINER.getPassword());
-                Statement statement = conn.createStatement()) {
+        try (Statement statement = getStatement()) {
             // test insert into t1
             statement.executeUpdate("INSERT INTO database_shard_1.t1 VALUES (1, 'db1_1')");
             statement.executeUpdate("INSERT INTO database_shard_1.t1 VALUES (2, 'db1_2')");
@@ -1388,6 +1328,169 @@ public class MySqlSyncDatabaseActionITCase extends MySqlActionITCaseBase {
                         Collections.singletonList("k"));
             }
         }
+    }
+
+    @Test
+    // @Timeout(60)
+    public void testScanNewlyAddedTable() throws Exception {
+        Map<String, String> mySqlConfig = getBasicMySqlConfig();
+        mySqlConfig.put("database-name", "test_scan_newly_added_table");
+
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(2);
+        env.enableCheckpointing(1000);
+        env.setRestartStrategy(RestartStrategies.noRestart());
+
+        Map<String, String> tableConfig = getBasicTableConfig();
+        MySqlSyncDatabaseAction action =
+                new MySqlSyncDatabaseAction(
+                        mySqlConfig,
+                        warehouse,
+                        database,
+                        false,
+                        null,
+                        null,
+                        "t1|t2|t3",
+                        null,
+                        Collections.emptyMap(),
+                        tableConfig,
+                        COMBINED);
+        action.build(env);
+        JobClient client = env.executeAsync();
+        waitJobRunning(client);
+
+        try (Statement statement = getStatement()) {
+            // insert some data
+            statement.executeUpdate("USE test_scan_newly_added_table");
+            statement.executeUpdate(
+                    "INSERT INTO t1 VALUES (4, 'desk'), (5, 'light'), (6, 'bottle')");
+            statement.executeUpdate("INSERT INTO t2 VALUES (4, 'Frank'), (5, 'John'), (6, 'Kate')");
+            statement.executeUpdate(
+                    "INSERT INTO t3 VALUES (4, 'dolphin'), (5, 'monkey'), (6, 'human')");
+            statement.executeUpdate(
+                    "INSERT INTO t4 VALUES (4, '2023-08-02'), (5, '2023-08-03'), (6, '2023-08-04')");
+            statement.executeUpdate(
+                    "INSERT INTO t5 VALUES (4, 'Mars'), (5, 'Jupiter'), (6, 'Saturn')");
+
+            // Thread.sleep(10_000);
+
+            // stop job and get savepoint path
+            String savepoint =
+                    client.stopWithSavepoint(
+                                    false,
+                                    tempDir.toUri().toString(),
+                                    SavepointFormatType.CANONICAL)
+                            .join();
+
+            // restart job from savepoint with new monitored tables
+            StreamExecutionEnvironment newEnv =
+                    StreamExecutionEnvironment.getExecutionEnvironment();
+            newEnv.setParallelism(2);
+            newEnv.enableCheckpointing(1000);
+            newEnv.setRestartStrategy(RestartStrategies.noRestart());
+
+            action =
+                    new MySqlSyncDatabaseAction(
+                            mySqlConfig,
+                            warehouse,
+                            database,
+                            false,
+                            null,
+                            null,
+                            "t1|t2|t3|t4|t5",
+                            null,
+                            Collections.emptyMap(),
+                            tableConfig,
+                            COMBINED);
+            action.build(newEnv);
+
+            StreamGraph streamGraph = newEnv.getStreamGraph();
+            JobGraph jobGraph = streamGraph.getJobGraph();
+            jobGraph.setSavepointRestoreSettings(SavepointRestoreSettings.forPath(savepoint, true));
+
+            client = newEnv.executeAsync(streamGraph);
+            waitJobRunning(client);
+
+            // continue to insert some data
+            statement.executeUpdate("USE test_scan_newly_added_table");
+            statement.executeUpdate("INSERT INTO t1 VALUES (7, 'chair')");
+            statement.executeUpdate("INSERT INTO t2 VALUES (7, 'William')");
+            statement.executeUpdate("INSERT INTO t3 VALUES (7, 'fish')");
+            statement.executeUpdate("INSERT INTO t4 VALUES (7, '2023-09-01')");
+            statement.executeUpdate("INSERT INTO t5 VALUES (7, 'Uranus')");
+        }
+
+        RowType rowType =
+                RowType.of(
+                        new DataType[] {DataTypes.INT().notNull(), DataTypes.VARCHAR(20)},
+                        new String[] {"k", "v"});
+        List<String> pk = Collections.singletonList("k");
+
+        // validate results
+        waitForResult(
+                Arrays.asList(
+                        "+I[1, apple]",
+                        "+I[2, banana]",
+                        "+I[3, computer]",
+                        "+I[4, desk]",
+                        "+I[5, light]",
+                        "+I[6, bottle]",
+                        "+I[7, chair]"),
+                getFileStoreTable("t1"),
+                rowType,
+                pk);
+
+        waitForResult(
+                Arrays.asList(
+                        "+I[1, Anna]",
+                        "+I[2, Clark]",
+                        "+I[3, Evan]",
+                        "+I[4, Frank]",
+                        "+I[5, John]",
+                        "+I[6, Kate]",
+                        "+I[7, William]"),
+                getFileStoreTable("t2"),
+                rowType,
+                pk);
+
+        waitForResult(
+                Arrays.asList(
+                        "+I[1, cat]",
+                        "+I[2, dog]",
+                        "+I[3, bird]",
+                        "+I[4, dolphin]",
+                        "+I[5, monkey]",
+                        "+I[6, human]",
+                        "+I[7, fish]"),
+                getFileStoreTable("t3"),
+                rowType,
+                pk);
+
+        waitForResult(
+                Arrays.asList(
+                        "+I[1, 2023-07-30]",
+                        "+I[2, 2023-07-31]",
+                        "+I[3, 2023-08-01]",
+                        "+I[4, 2023-08-02]",
+                        "+I[5, 2023-08-03]",
+                        "+I[6, 2023-08-04]",
+                        "+I[7, 2023-09-01]"),
+                getFileStoreTable("t4"),
+                rowType,
+                pk);
+
+        waitForResult(
+                Arrays.asList(
+                        "+I[1, Sun]",
+                        "+I[2, Mercury]",
+                        "+I[3, Venus]",
+                        "+I[4, Mars]",
+                        "+I[5, Jupiter]",
+                        "+I[6, Saturn]",
+                        "+I[7, Uranus]"),
+                getFileStoreTable("t5"),
+                rowType,
+                pk);
     }
 
     private void assertTableExists(List<String> tableNames) {

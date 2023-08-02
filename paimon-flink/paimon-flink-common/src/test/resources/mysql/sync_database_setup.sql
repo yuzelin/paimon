@@ -81,7 +81,7 @@ CREATE TABLE t3 (
 );
 
 -- ################################################################################
---  MySqlSyncDatabaseActionITCase#testIgnoreIncompatibleTables
+--  testIgnoreIncompatibleTables
 -- ################################################################################
 
 CREATE DATABASE paimon_sync_database_ignore_incompatible;
@@ -102,7 +102,7 @@ CREATE TABLE compatible (
 );
 
 -- ################################################################################
---  MySqlSyncDatabaseActionITCase#testTableAffix
+--  testTableAffix
 -- ################################################################################
 
 CREATE DATABASE paimon_sync_database_affix;
@@ -121,7 +121,7 @@ CREATE TABLE t2 (
 );
 
 -- ################################################################################
---  MySqlSyncDatabaseActionITCase#testIncludingTables
+--  testIncludingTables
 -- ################################################################################
 
 CREATE DATABASE paimon_sync_database_including;
@@ -148,7 +148,7 @@ CREATE TABLE ignored (
 );
 
 -- ################################################################################
---  MySqlSyncDatabaseActionITCase#testExcludingTables
+--  testExcludingTables
 -- ################################################################################
 
 CREATE DATABASE paimon_sync_database_excluding;
@@ -175,7 +175,7 @@ CREATE TABLE sync (
 );
 
 -- ################################################################################
---  MySqlSyncDatabaseActionITCase#testIncludingAndExcludingTables
+--  testIncludingAndExcludingTables
 -- ################################################################################
 
 CREATE DATABASE paimon_sync_database_in_excluding;
@@ -202,7 +202,7 @@ CREATE TABLE test (
 );
 
 -- ################################################################################
---  MySqlSyncDatabaseActionITCase#testIgnoreCase
+--  testIgnoreCase
 -- ################################################################################
 
 CREATE DATABASE paimon_ignore_CASE;
@@ -216,7 +216,7 @@ CREATE TABLE T (
 
 
 -- ################################################################################
---  MySqlSyncDatabaseActionITCase#testNewlyAddedTables
+--  testNewlyCreatedTables
 -- ################################################################################
 
 CREATE DATABASE paimon_sync_database_newly_added_tables;
@@ -391,3 +391,46 @@ CREATE TABLE t3 (
     k INT,
     v1 VARCHAR(10)
 );
+
+-- ################################################################################
+--  testScanNewlyAddedTables
+-- ################################################################################
+
+CREATE DATABASE test_scan_newly_added_table;
+USE test_scan_newly_added_table;
+
+CREATE TABLE t1(
+    k INT,
+    v VARCHAR(20),
+    PRIMARY KEY (k)
+);
+INSERT INTO t1 VALUES (1, 'apple'), (2, 'banana'), (3, 'computer');
+
+CREATE TABLE t2(
+    k INT,
+    v VARCHAR(20),
+    PRIMARY KEY (k)
+);
+INSERT INTO t2 VALUES (1, 'Anna'), (2, 'Clark'), (3, 'Evan');
+
+CREATE TABLE t3(
+    k INT,
+    v VARCHAR(20),
+    PRIMARY KEY (k)
+);
+INSERT INTO t3 VALUES (1, 'cat'), (2, 'dog'), (3, 'bird');
+
+CREATE TABLE t4(
+    k INT,
+    v VARCHAR(20),
+    PRIMARY KEY (k)
+);
+INSERT INTO t4 VALUES (1, '2023-07-30'), (2, '2023-07-31'), (3, '2023-08-01');
+
+CREATE TABLE t5(
+    k INT,
+    v VARCHAR(20),
+    PRIMARY KEY (k)
+);
+INSERT INTO t5 VALUES (1, 'Sun'), (2, 'Mercury'), (3, 'Venus');
+
