@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Map;
 import java.util.Optional;
 
+import static org.apache.paimon.flink.action.cdc.CdcActionCommonUtils.COMPOSITE_PRIMARY_KEY;
 import static org.apache.paimon.flink.action.cdc.CdcActionCommonUtils.COMPUTED_COLUMN;
 import static org.apache.paimon.flink.action.cdc.CdcActionCommonUtils.METADATA_COLUMN;
 import static org.apache.paimon.flink.action.cdc.CdcActionCommonUtils.PARTITION_KEYS;
@@ -81,6 +82,10 @@ public abstract class SyncTableActionFactoryBase implements ActionFactory {
         if (params.has(TYPE_MAPPING)) {
             String[] options = params.get(TYPE_MAPPING).split(",");
             action.withTypeMapping(TypeMapping.parse(options));
+        }
+
+        if (params.has(COMPOSITE_PRIMARY_KEY)) {
+            action.withCompositePrimaryKey(params.get(COMPOSITE_PRIMARY_KEY));
         }
     }
 }
