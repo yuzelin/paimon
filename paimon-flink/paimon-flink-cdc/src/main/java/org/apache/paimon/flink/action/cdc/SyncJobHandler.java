@@ -214,7 +214,8 @@ public class SyncJobHandler {
                         caseSensitive,
                         computedColumns,
                         typeMapping,
-                        metadataConverters);
+                        metadataConverters,
+                        compositePrimaryKey);
             case KAFKA:
             case PULSAR:
                 DataFormat dataFormat = provideDataFormat();

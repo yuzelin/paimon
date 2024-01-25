@@ -1106,8 +1106,7 @@ public class MySqlSyncTableActionITCase extends MySqlActionITCaseBase {
             statement.executeUpdate("INSERT INTO " + table1 + " VALUES (1, 1, 'one')");
             statement.executeUpdate(
                     "INSERT INTO " + table2 + " VALUES (1, 2, 'one'), (1, 1, 'one')");
-            System.out.println(database);
-            System.out.println(tableName);
+
             RowType rowType =
                     RowType.of(
                             new DataType[] {
