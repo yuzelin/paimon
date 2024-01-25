@@ -810,7 +810,6 @@ public class PostgresSyncTableActionITCase extends PostgresActionITCaseBase {
             FileStoreTable table = getFileStoreTable();
             String table1 = "composite_primary_key_1";
             String table2 = "composite_primary_key_2";
-            statement.executeUpdate("USE " + DATABASE_NAME);
 
             statement.executeUpdate("INSERT INTO " + table1 + " VALUES (1, 1, 'one')");
             statement.executeUpdate(
