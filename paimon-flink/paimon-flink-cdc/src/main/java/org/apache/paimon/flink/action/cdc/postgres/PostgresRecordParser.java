@@ -163,7 +163,10 @@ public class PostgresRecordParser implements FlatMapFunction<String, RichCdcMult
                             columnCaseConvertAndDuplicateCheck(
                                     key, existedFields, caseSensitive, columnDuplicateErrMsg);
 
-                    DataType dataType = extractFieldType(value);
+                    DataType dataType =
+                            columnName.equals(compositePrimaryKey)
+                                    ? DataTypes.STRING()
+                                    : extractFieldType(value);
                     dataType =
                             dataType.copy(
                                     typeMapping.containsMode(TO_NULLABLE) || value.optional());
