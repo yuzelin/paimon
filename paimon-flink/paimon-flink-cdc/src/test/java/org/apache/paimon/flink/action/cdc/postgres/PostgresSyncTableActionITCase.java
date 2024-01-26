@@ -820,7 +820,7 @@ public class PostgresSyncTableActionITCase extends PostgresActionITCaseBase {
                             new DataType[] {
                                 DataTypes.STRING().notNull(),
                                 DataTypes.INT().notNull(),
-                                DataTypes.STRING()
+                                DataTypes.VARCHAR(10)
                             },
                             new String[] {"pt", "_id", "v1"});
             List<String> primaryKeys = Arrays.asList("pt", "_id");

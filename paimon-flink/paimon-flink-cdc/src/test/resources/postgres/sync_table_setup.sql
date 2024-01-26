@@ -71,6 +71,7 @@ CREATE TABLE composite_primary_key_2 (
     v1 VARCHAR(10),
     PRIMARY KEY (_id)
 );
+
 CREATE TABLE all_types_table (
     _id INT,
     pt DECIMAL(2, 1),
