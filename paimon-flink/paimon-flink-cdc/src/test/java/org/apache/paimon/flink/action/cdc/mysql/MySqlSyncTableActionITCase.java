@@ -48,8 +48,10 @@ import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
-import static org.apache.paimon.testutils.assertj.AssertionUtils.anyCauseMatches;
+import static org.apache.paimon.CoreOptions.BUCKET;
+import static org.apache.paimon.testutils.assertj.PaimonAssertions.anyCauseMatches;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** IT cases for {@link MySqlSyncTableAction}. */
@@ -1127,5 +1129,28 @@ public class MySqlSyncTableActionITCase extends MySqlActionITCaseBase {
 
     private String getPrefix(String table) {
         return DATABASE_NAME + "_" + table + "_";
+    }
+
+    @Test
+    @Timeout(60)
+    public void testInvalidAlterBucket() throws Exception {
+        // create table with bucket first
+        createFileStoreTable(
+                RowType.of(new DataType[] {DataTypes.INT()}, new String[] {"k"}),
+                Collections.emptyList(),
+                Collections.singletonList("k"),
+                Collections.singletonMap(BUCKET.key(), "1"));
+
+        Map<String, String> mySqlConfig = getBasicMySqlConfig();
+        mySqlConfig.put("database-name", "invalid_alter_bucket");
+        mySqlConfig.put("table-name", "t");
+
+        MySqlSyncTableAction action =
+                syncTableActionBuilder(mySqlConfig)
+                        .withTableConfig(Collections.singletonMap(BUCKET.key(), "2"))
+                        .build();
+
+        assertThatCode(action::build).doesNotThrowAnyException();
+        assertThat(action.fileStoreTable().options().get(BUCKET.key())).isEqualTo("1");
     }
 }

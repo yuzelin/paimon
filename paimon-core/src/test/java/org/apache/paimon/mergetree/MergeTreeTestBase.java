@@ -416,6 +416,7 @@ public abstract class MergeTreeTestBase {
                 new MergeTreeWriter(
                         false,
                         128,
+                        "lz4",
                         null,
                         compactManager,
                         maxSequenceNumber,
@@ -424,6 +425,7 @@ public abstract class MergeTreeTestBase {
                         writerFactory,
                         options.commitForceCompact(),
                         ChangelogProducer.NONE,
+                        null,
                         null,
                         null);
         writer.setMemoryPool(

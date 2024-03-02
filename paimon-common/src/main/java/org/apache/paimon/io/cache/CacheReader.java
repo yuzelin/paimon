@@ -16,15 +16,12 @@
  * limitations under the License.
  */
 
-package org.apache.paimon.compression;
+package org.apache.paimon.io.cache;
 
-/**
- * Each compression codec has an implementation of {@link BlockCompressionFactory} to create
- * compressors and decompressors.
- */
-public interface BlockCompressionFactory {
+import java.io.IOException;
 
-    BlockCompressor getCompressor();
+/** Reader to read byte[]. */
+public interface CacheReader {
 
-    BlockDecompressor getDecompressor();
+    byte[] read(CacheKey key) throws IOException;
 }

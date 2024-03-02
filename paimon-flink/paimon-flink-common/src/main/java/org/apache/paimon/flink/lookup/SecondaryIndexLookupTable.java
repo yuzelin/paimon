@@ -21,6 +21,7 @@ package org.apache.paimon.flink.lookup;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.serializer.InternalSerializers;
 import org.apache.paimon.lookup.RocksDBSetState;
+import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.types.RowKind;
 import org.apache.paimon.utils.KeyProjectedRow;
 import org.apache.paimon.utils.TypeUtils;
@@ -33,22 +34,28 @@ import java.util.List;
 /** A {@link LookupTable} for primary key table which provides lookup by secondary key. */
 public class SecondaryIndexLookupTable extends PrimaryKeyLookupTable {
 
-    private final RocksDBSetState<InternalRow, InternalRow> indexState;
-
     private final KeyProjectedRow secKeyRow;
+
+    private RocksDBSetState<InternalRow, InternalRow> indexState;
 
     public SecondaryIndexLookupTable(Context context, long lruCacheSize) throws IOException {
         super(context, lruCacheSize / 2, context.table.primaryKeys());
         List<String> fieldNames = projectedType.getFieldNames();
         int[] secKeyMapping = context.joinKey.stream().mapToInt(fieldNames::indexOf).toArray();
         this.secKeyRow = new KeyProjectedRow(secKeyMapping);
+    }
+
+    @Override
+    public void open() throws Exception {
         this.indexState =
                 stateFactory.setState(
                         "sec-index",
-                        InternalSerializers.create(TypeUtils.project(projectedType, secKeyMapping)),
                         InternalSerializers.create(
-                                TypeUtils.project(projectedType, primaryKeyMapping)),
-                        lruCacheSize / 2);
+                                TypeUtils.project(projectedType, secKeyRow.indexMapping())),
+                        InternalSerializers.create(
+                                TypeUtils.project(projectedType, primaryKeyRow.indexMapping())),
+                        lruCacheSize);
+        super.open();
     }
 
     @Override
@@ -67,6 +74,7 @@ public class SecondaryIndexLookupTable extends PrimaryKeyLookupTable {
     @Override
     public void refresh(Iterator<InternalRow> incremental, boolean orderByLastField)
             throws IOException {
+        Predicate predicate = projectedPredicate();
         while (incremental.hasNext()) {
             InternalRow row = incremental.next();
             primaryKeyRow.replaceRow(row);
@@ -90,7 +98,7 @@ public class SecondaryIndexLookupTable extends PrimaryKeyLookupTable {
                     indexState.retract(secKeyRow.replaceRow(previous), primaryKeyRow);
                 }
 
-                if (recordFilter().test(row)) {
+                if (predicate == null || predicate.test(row)) {
                     tableState.put(primaryKeyRow, row);
                     indexState.add(secKeyRow.replaceRow(row), primaryKeyRow);
                 } else {

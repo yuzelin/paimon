@@ -33,7 +33,7 @@ import org.apache.paimon.partition.PartitionPredicate;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
-import org.apache.paimon.stats.FieldStatsArraySerializer;
+import org.apache.paimon.stats.BinaryTableStats;
 import org.apache.paimon.table.source.ScanMode;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.FileStorePathFactory;
@@ -61,7 +61,6 @@ import static org.apache.paimon.utils.Preconditions.checkState;
 /** Default implementation of {@link FileStoreScan}. */
 public abstract class AbstractFileStoreScan implements FileStoreScan {
 
-    private final FieldStatsArraySerializer partitionStatsConverter;
     private final RowType partitionType;
     private final SnapshotManager snapshotManager;
     private final ManifestFile.Factory manifestFileFactory;
@@ -85,6 +84,7 @@ public abstract class AbstractFileStoreScan implements FileStoreScan {
     private final Integer scanManifestParallelism;
 
     private ScanMetrics scanMetrics = null;
+    private String branchName;
 
     public AbstractFileStoreScan(
             RowType partitionType,
@@ -95,8 +95,8 @@ public abstract class AbstractFileStoreScan implements FileStoreScan {
             ManifestList.Factory manifestListFactory,
             int numOfBuckets,
             boolean checkNumOfBuckets,
-            Integer scanManifestParallelism) {
-        this.partitionStatsConverter = new FieldStatsArraySerializer(partitionType);
+            Integer scanManifestParallelism,
+            String branchName) {
         this.partitionType = partitionType;
         this.bucketKeyFilter = bucketKeyFilter;
         this.snapshotManager = snapshotManager;
@@ -107,12 +107,13 @@ public abstract class AbstractFileStoreScan implements FileStoreScan {
         this.checkNumOfBuckets = checkNumOfBuckets;
         this.tableSchemas = new ConcurrentHashMap<>();
         this.scanManifestParallelism = scanManifestParallelism;
+        this.branchName = branchName;
     }
 
     @Override
     public FileStoreScan withPartitionFilter(Predicate predicate) {
         if (partitionType.getFieldCount() > 0 && predicate != null) {
-            this.partitionFilter = PartitionPredicate.fromPredicate(partitionType, predicate);
+            this.partitionFilter = PartitionPredicate.fromPredicate(predicate);
         } else {
             this.partitionFilter = null;
         }
@@ -126,6 +127,12 @@ public abstract class AbstractFileStoreScan implements FileStoreScan {
         } else {
             this.partitionFilter = null;
         }
+        return this;
+    }
+
+    @Override
+    public FileStoreScan withPartitionFilter(PartitionPredicate predicate) {
+        this.partitionFilter = predicate;
         return this;
     }
 
@@ -247,7 +254,7 @@ public abstract class AbstractFileStoreScan implements FileStoreScan {
         if (manifests == null) {
             snapshot =
                     specifiedSnapshot == null
-                            ? snapshotManager.latestSnapshot()
+                            ? snapshotManager.latestSnapshot(branchName)
                             : specifiedSnapshot;
             if (snapshot == null) {
                 manifests = Collections.emptyList();
@@ -379,10 +386,17 @@ public abstract class AbstractFileStoreScan implements FileStoreScan {
 
     /** Note: Keep this thread-safe. */
     private boolean filterManifestFileMeta(ManifestFileMeta manifest) {
+        if (partitionFilter == null) {
+            return true;
+        }
+
+        BinaryTableStats stats = manifest.partitionStats();
         return partitionFilter == null
                 || partitionFilter.test(
                         manifest.numAddedFiles() + manifest.numDeletedFiles(),
-                        manifest.partitionStats().fields(partitionStatsConverter));
+                        stats.minValues(),
+                        stats.maxValues(),
+                        stats.nullCounts());
     }
 
     /** Note: Keep this thread-safe. */

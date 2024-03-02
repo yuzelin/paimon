@@ -18,6 +18,7 @@
 
 package org.apache.paimon;
 
+import org.apache.paimon.annotation.Documentation;
 import org.apache.paimon.annotation.Documentation.ExcludeFromDocumentation;
 import org.apache.paimon.annotation.Documentation.Immutable;
 import org.apache.paimon.annotation.VisibleForTesting;
@@ -30,6 +31,7 @@ import org.apache.paimon.options.OptionsUtils;
 import org.apache.paimon.options.description.DescribedEnum;
 import org.apache.paimon.options.description.Description;
 import org.apache.paimon.options.description.InlineElement;
+import org.apache.paimon.utils.MathUtils;
 import org.apache.paimon.utils.Pair;
 import org.apache.paimon.utils.StringUtils;
 
@@ -71,7 +73,7 @@ public class CoreOptions implements Serializable {
     public static final ConfigOption<Integer> BUCKET =
             key("bucket")
                     .intType()
-                    .defaultValue(1)
+                    .defaultValue(-1)
                     .withDescription("Bucket number for file store.");
 
     @Immutable
@@ -189,6 +191,7 @@ public class CoreOptions implements Serializable {
                     .withDescription(
                             "The minimum number of completed snapshots to retain. Should be greater than or equal to 1.");
 
+    @Documentation.OverrideDefault("infinite")
     public static final ConfigOption<Integer> SNAPSHOT_NUM_RETAINED_MAX =
             key("snapshot.num-retained.max")
                     .intType()
@@ -283,6 +286,13 @@ public class CoreOptions implements Serializable {
                     .defaultValue(MemorySize.parse("64 mb"))
                     .withDescription("Amount of data to spill records to disk in spilled sort.");
 
+    public static final ConfigOption<String> SPILL_COMPRESSION =
+            key("spill-compression")
+                    .stringType()
+                    .defaultValue("LZ4")
+                    .withDescription(
+                            "Compression for spill, currently lz4, lzo and zstd are supported.");
+
     public static final ConfigOption<Boolean> WRITE_ONLY =
             key("write-only")
                     .booleanType()
@@ -359,7 +369,7 @@ public class CoreOptions implements Serializable {
     public static final ConfigOption<MemorySize> CACHE_PAGE_SIZE =
             key("cache-page-size")
                     .memoryType()
-                    .defaultValue(MemorySize.parse("16 kb"))
+                    .defaultValue(MemorySize.parse("64 kb"))
                     .withDescription("Memory page size for caching.");
 
     public static final ConfigOption<MemorySize> TARGET_FILE_SIZE =
@@ -715,12 +725,20 @@ public class CoreOptions implements Serializable {
                                     + " if there is a need for access, it will be re-read from the DFS to build"
                                     + " an index on the local disk.");
 
+    @Documentation.OverrideDefault("infinite")
     public static final ConfigOption<MemorySize> LOOKUP_CACHE_MAX_DISK_SIZE =
             key("lookup.cache-max-disk-size")
                     .memoryType()
                     .defaultValue(MemorySize.MAX_VALUE)
                     .withDescription(
                             "Max disk size for lookup cache, you can use this option to limit the use of local disks.");
+
+    public static final ConfigOption<String> LOOKUP_CACHE_SPILL_COMPRESSION =
+            key("lookup.cache-spill-compression")
+                    .stringType()
+                    .defaultValue("lz4")
+                    .withDescription(
+                            "Spill compression for lookup cache, currently none, lz4, lzo and zstd are supported.");
 
     public static final ConfigOption<MemorySize> LOOKUP_CACHE_MAX_MEMORY_SIZE =
             key("lookup.cache-max-memory-size")
@@ -1155,6 +1173,15 @@ public class CoreOptions implements Serializable {
                 .collect(Collectors.toMap(e -> Integer.valueOf(e.getKey()), Map.Entry::getValue));
     }
 
+    public boolean definedAggFunc() {
+        for (String key : options.toMap().keySet()) {
+            if (key.startsWith(FIELDS_PREFIX) && key.endsWith(AGG_FUNCTION)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public String fieldAggFunc(String fieldName) {
         return options.get(
                 key(FIELDS_PREFIX + "." + fieldName + "." + AGG_FUNCTION)
@@ -1235,8 +1262,7 @@ public class CoreOptions implements Serializable {
     public int sortSpillThreshold() {
         Integer maxSortedRunNum = options.get(SORT_SPILL_THRESHOLD);
         if (maxSortedRunNum == null) {
-            int stopNum = numSortedRunStopTrigger();
-            maxSortedRunNum = Math.max(stopNum, stopNum + 1);
+            maxSortedRunNum = MathUtils.incrementSafely(numSortedRunStopTrigger());
         }
         checkArgument(maxSortedRunNum > 1, "The sort spill threshold cannot be smaller than 2.");
         return maxSortedRunNum;
@@ -1269,6 +1295,10 @@ public class CoreOptions implements Serializable {
 
     public long sortSpillBufferSize() {
         return options.get(SORT_SPILL_BUFFER_SIZE).getBytes();
+    }
+
+    public String spillCompression() {
+        return options.get(SPILL_COMPRESSION);
     }
 
     public Duration continuousDiscoveryInterval() {
@@ -1318,7 +1348,7 @@ public class CoreOptions implements Serializable {
     public int numSortedRunStopTrigger() {
         Integer stopTrigger = options.get(NUM_SORTED_RUNS_STOP_TRIGGER);
         if (stopTrigger == null) {
-            stopTrigger = numSortedRunCompactionTrigger() + 1;
+            stopTrigger = MathUtils.incrementSafely(numSortedRunCompactionTrigger());
         }
         return Math.max(numSortedRunCompactionTrigger(), stopTrigger);
     }
@@ -1327,7 +1357,9 @@ public class CoreOptions implements Serializable {
         // By default, this ensures that the compaction does not fall to level 0, but at least to
         // level 1
         Integer numLevels = options.get(NUM_LEVELS);
-        numLevels = numLevels == null ? numSortedRunCompactionTrigger() + 1 : numLevels;
+        if (numLevels == null) {
+            numLevels = MathUtils.incrementSafely(numSortedRunCompactionTrigger());
+        }
         return numLevels;
     }
 
