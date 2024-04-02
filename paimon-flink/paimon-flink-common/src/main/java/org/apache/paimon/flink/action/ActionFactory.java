@@ -53,6 +53,7 @@ public interface ActionFactory extends Factory {
     String CATALOG_CONF = "catalog_conf";
     String TABLE_CONF = "table_conf";
     String PARTITION = "partition";
+    String SOFT_DELETE_FLAG = "soft_delete_flag";
 
     Optional<Action> create(MultipleParameterToolAdapter params);
 

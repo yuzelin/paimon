@@ -83,8 +83,11 @@ public class DebeziumRecordParser extends RecordParser {
     private final Map<String, Map<String, String>> parameters = new HashMap<>();
 
     public DebeziumRecordParser(
-            boolean caseSensitive, TypeMapping typeMapping, List<ComputedColumn> computedColumns) {
-        super(caseSensitive, typeMapping, computedColumns);
+            boolean caseSensitive,
+            TypeMapping typeMapping,
+            List<ComputedColumn> computedColumns,
+            @Nullable String softDeleteFlagColumn) {
+        super(caseSensitive, typeMapping, computedColumns, softDeleteFlagColumn);
     }
 
     @Override
@@ -183,9 +186,11 @@ public class DebeziumRecordParser extends RecordParser {
 
     @Override
     protected Map<String, String> extractRowData(
-            JsonNode record, LinkedHashMap<String, DataType> paimonFieldTypes) {
+            JsonNode record,
+            LinkedHashMap<String, DataType> paimonFieldTypes,
+            boolean isDeleteRecord) {
         if (!hasSchema) {
-            return super.extractRowData(record, paimonFieldTypes);
+            return super.extractRowData(record, paimonFieldTypes, isDeleteRecord);
         }
 
         Map<String, Object> recordMap =
@@ -214,7 +219,7 @@ public class DebeziumRecordParser extends RecordParser {
         }
 
         evalComputedColumns(resultMap, paimonFieldTypes);
-
+        fillOptionalSoftDeleteFlag(resultMap, paimonFieldTypes, isDeleteRecord);
         return resultMap;
     }
 

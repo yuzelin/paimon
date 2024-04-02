@@ -59,8 +59,11 @@ public class OggRecordParser extends RecordParser {
     private static final String OP_DELETE = "D";
 
     public OggRecordParser(
-            boolean caseSensitive, TypeMapping typeMapping, List<ComputedColumn> computedColumns) {
-        super(caseSensitive, typeMapping, computedColumns);
+            boolean caseSensitive,
+            TypeMapping typeMapping,
+            List<ComputedColumn> computedColumns,
+            @Nullable String softDeleteFlagColumn) {
+        super(caseSensitive, typeMapping, computedColumns, softDeleteFlagColumn);
     }
 
     @Override

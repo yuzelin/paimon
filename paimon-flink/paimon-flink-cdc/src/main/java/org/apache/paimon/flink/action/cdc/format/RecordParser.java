@@ -75,14 +75,19 @@ public abstract class RecordParser implements FlatMapFunction<String, RichCdcMul
     private final boolean caseSensitive;
     protected final TypeMapping typeMapping;
     protected final List<ComputedColumn> computedColumns;
+    @Nullable protected final String softDeleteFlagColumn;
 
     protected JsonNode root;
 
     public RecordParser(
-            boolean caseSensitive, TypeMapping typeMapping, List<ComputedColumn> computedColumns) {
+            boolean caseSensitive,
+            TypeMapping typeMapping,
+            List<ComputedColumn> computedColumns,
+            @Nullable String softDeleteFlagColumn) {
         this.caseSensitive = caseSensitive;
         this.typeMapping = typeMapping;
         this.computedColumns = computedColumns;
+        this.softDeleteFlagColumn = softDeleteFlagColumn;
     }
 
     @Nullable
@@ -176,6 +181,16 @@ public abstract class RecordParser implements FlatMapFunction<String, RichCdcMul
                 });
     }
 
+    protected void fillOptionalSoftDeleteFlag(
+            Map<String, String> rowData,
+            LinkedHashMap<String, DataType> paimonFieldTypes,
+            boolean isDeleteRecord) {
+        if (softDeleteFlagColumn != null) {
+            rowData.put(softDeleteFlagColumn, String.valueOf(isDeleteRecord));
+            paimonFieldTypes.put(softDeleteFlagColumn, DataTypes.BOOLEAN());
+        }
+    }
+
     private List<String> extractPrimaryKeys() {
         ArrayNode pkNames = getNodeAs(root, primaryField(), ArrayNode.class);
         if (pkNames == null) {
@@ -190,7 +205,8 @@ public abstract class RecordParser implements FlatMapFunction<String, RichCdcMul
     protected void processRecord(
             JsonNode jsonNode, RowKind rowKind, List<RichCdcMultiplexRecord> records) {
         LinkedHashMap<String, DataType> paimonFieldTypes = new LinkedHashMap<>(jsonNode.size());
-        Map<String, String> rowData = this.extractRowData(jsonNode, paimonFieldTypes);
+        Map<String, String> rowData =
+                this.extractRowData(jsonNode, paimonFieldTypes, isDeleteRecord);
         records.add(createRecord(rowKind, rowData, paimonFieldTypes));
     }
 

@@ -45,6 +45,7 @@ public abstract class SynchronizationActionFactoryBase<T extends Synchronization
         T action = createAction();
 
         action.withTableConfig(optionalConfigMap(params, TABLE_CONF));
+        action.withSoftDeleteFlag(params.get(SOFT_DELETE_FLAG));
         withParams(params, action);
 
         return Optional.of(action);

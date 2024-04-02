@@ -83,8 +83,11 @@ public class CanalRecordParser extends RecordParser {
     }
 
     public CanalRecordParser(
-            boolean caseSensitive, TypeMapping typeMapping, List<ComputedColumn> computedColumns) {
-        super(caseSensitive, typeMapping, computedColumns);
+            boolean caseSensitive,
+            TypeMapping typeMapping,
+            List<ComputedColumn> computedColumns,
+            @Nullable String softDeleteFlagColumn) {
+        super(caseSensitive, typeMapping, computedColumns, softDeleteFlagColumn);
     }
 
     @Override
@@ -109,15 +112,15 @@ public class CanalRecordParser extends RecordParser {
                     Map<JsonNode, JsonNode> matchedOldRecords =
                             matchOldRecords(arrayData, oldArrayData);
                     JsonNode old = matchedOldRecords.get(data);
-                    processRecord(mergeOldRecord(data, old), RowKind.DELETE, records);
-                    processRecord(data, RowKind.INSERT, records);
+                    processRecord(mergeOldRecord(data, old), RowKind.UPDATE_BEFORE, records, false);
+                    processRecord(data, RowKind.UPDATE_AFTER, records, false);
                     break;
                 case OP_INSERT:
                 case OP_ROW:
-                    processRecord(data, RowKind.INSERT, records);
+                    processRecord(data, RowKind.INSERT, records, false);
                     break;
                 case OP_DELETE:
-                    processRecord(data, RowKind.DELETE, records);
+                    processRecord(data, RowKind.DELETE, records, true);
                     break;
                 default:
                     throw new UnsupportedOperationException("Unknown record operation: " + type);
@@ -161,7 +164,9 @@ public class CanalRecordParser extends RecordParser {
 
     @Override
     protected Map<String, String> extractRowData(
-            JsonNode record, LinkedHashMap<String, DataType> paimonFieldTypes) {
+            JsonNode record,
+            LinkedHashMap<String, DataType> paimonFieldTypes,
+            boolean isDeleteRecord) {
         LinkedHashMap<String, String> originalFieldTypes = tryExtractOriginalFieldTypes();
         Map<String, Object> recordMap =
                 JsonSerdeUtil.convertValue(record, new TypeReference<Map<String, Object>>() {});
@@ -184,6 +189,7 @@ public class CanalRecordParser extends RecordParser {
         }
 
         evalComputedColumns(rowData, paimonFieldTypes);
+        fillOptionalSoftDeleteFlag(rowData, paimonFieldTypes, isDeleteRecord);
         return rowData;
     }
 

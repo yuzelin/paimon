@@ -26,6 +26,8 @@ import org.apache.paimon.types.RowKind;
 
 import org.apache.paimon.shade.jackson2.com.fasterxml.jackson.databind.JsonNode;
 
+import javax.annotation.Nullable;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -51,8 +53,11 @@ public class MaxwellRecordParser extends RecordParser {
     private static final String OP_DELETE = "delete";
 
     public MaxwellRecordParser(
-            boolean caseSensitive, TypeMapping typeMapping, List<ComputedColumn> computedColumns) {
-        super(caseSensitive, typeMapping, computedColumns);
+            boolean caseSensitive,
+            TypeMapping typeMapping,
+            List<ComputedColumn> computedColumns,
+            @Nullable String softDeleteFlagColumn) {
+        super(caseSensitive, typeMapping, computedColumns, softDeleteFlagColumn);
     }
 
     @Override
