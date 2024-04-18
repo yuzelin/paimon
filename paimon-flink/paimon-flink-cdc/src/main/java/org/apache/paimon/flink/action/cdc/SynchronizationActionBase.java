@@ -40,6 +40,7 @@ import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
 
 import java.time.Duration;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -66,7 +67,7 @@ public abstract class SynchronizationActionBase extends ActionBase {
 
     protected Map<String, String> tableConfig = new HashMap<>();
     protected TypeMapping typeMapping = TypeMapping.defaultMapping();
-    protected CdcMetadataConverter[] metadataConverters = new CdcMetadataConverter[] {};
+    protected List<CdcMetadataConverter> metadataConverters = Collections.emptyList();
 
     public SynchronizationActionBase(
             String warehouse,
@@ -97,7 +98,7 @@ public abstract class SynchronizationActionBase extends ActionBase {
         this.metadataConverters =
                 metadataColumns.stream()
                         .map(this.syncJobHandler::provideMetadataConverter)
-                        .toArray(CdcMetadataConverter[]::new);
+                        .collect(Collectors.toList());
         return this;
     }
 

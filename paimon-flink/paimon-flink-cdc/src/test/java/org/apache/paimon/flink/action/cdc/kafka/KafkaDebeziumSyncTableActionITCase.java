@@ -147,4 +147,65 @@ public class KafkaDebeziumSyncTableActionITCase extends KafkaSyncTableActionITCa
                 rowType,
                 Collections.singletonList("id"));
     }
+
+    @Test
+    @Timeout(60)
+    public void testMetadataColumns() throws Exception {
+        String topic = "test_metadata_columns";
+        createTestTopic(topic, 1, 1);
+
+        writeRecordsToKafka(topic, "kafka/debezium/table/schema/include/debezium-data-1.txt");
+
+        Map<String, String> kafkaConfig = getBasicKafkaConfig();
+        kafkaConfig.put(VALUE_FORMAT.key(), "debezium-json");
+        kafkaConfig.put(TOPIC.key(), topic);
+        KafkaSyncTableAction action =
+                syncTableActionBuilder(kafkaConfig)
+                        .withPrimaryKeys("id")
+                        .withTableConfig(getBasicTableConfig())
+                        .withMetadataColumns(
+                                "schema",
+                                "ingestion-timestamp",
+                                "source.timestamp",
+                                "source.database",
+                                "source.schema",
+                                "source.table",
+                                "source.properties")
+                        .build();
+        runActionWithDefaultEnv(action);
+
+        RowType rowType =
+                RowType.of(
+                        new DataType[] {
+                            DataTypes.INT().notNull(),
+                            DataTypes.STRING(),
+                            DataTypes.STRING(),
+                            DataTypes.DOUBLE(),
+                            DataTypes.STRING(),
+                            DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(3),
+                            DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(3),
+                            DataTypes.STRING(),
+                            DataTypes.STRING(),
+                            DataTypes.STRING(),
+                            DataTypes.STRING()
+                        },
+                        new String[] {
+                            "id",
+                            "name",
+                            "description",
+                            "weight",
+                            "schema",
+                            "ingestion-timestamp",
+                            "source.timestamp",
+                            "source.database",
+                            "source.schema",
+                            "source.table",
+                            "source.properties"
+                        });
+        waitForResult(
+                Arrays.asList("?"),
+                getFileStoreTable(tableName),
+                rowType,
+                Collections.singletonList("id"));
+    }
 }

@@ -18,6 +18,7 @@
 
 package org.apache.paimon.flink.action.cdc.format;
 
+import org.apache.paimon.flink.action.cdc.CdcMetadataConverter;
 import org.apache.paimon.flink.action.cdc.ComputedColumn;
 import org.apache.paimon.flink.action.cdc.TypeMapping;
 
@@ -40,8 +41,12 @@ public interface RecordParserFactory {
      * @param caseSensitive Indicates whether the parser should be case-sensitive.
      * @param typeMapping Data type mapping options.
      * @param computedColumns List of computed columns to be considered by the parser.
+     * @param metadataConverters List of metadata converters.
      * @return A new instance of {@link RecordParser}.
      */
     RecordParser createParser(
-            boolean caseSensitive, TypeMapping typeMapping, List<ComputedColumn> computedColumns);
+            boolean caseSensitive,
+            TypeMapping typeMapping,
+            List<ComputedColumn> computedColumns,
+            List<CdcMetadataConverter> metadataConverters);
 }

@@ -171,7 +171,7 @@ public class CdcActionCommonUtils {
             List<ComputedColumn> computedColumns,
             Map<String, String> tableConfig,
             Schema sourceSchema,
-            CdcMetadataConverter[] metadataConverters,
+            List<CdcMetadataConverter> metadataConverters,
             boolean caseSensitive,
             boolean requirePrimaryKeys) {
         Schema.Builder builder = Schema.newBuilder();

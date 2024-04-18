@@ -18,6 +18,7 @@
 
 package org.apache.paimon.flink.action.cdc.format.debezium;
 
+import org.apache.paimon.flink.action.cdc.CdcMetadataConverter;
 import org.apache.paimon.flink.action.cdc.ComputedColumn;
 import org.apache.paimon.flink.action.cdc.TypeMapping;
 import org.apache.paimon.flink.action.cdc.format.RecordParser;
@@ -78,13 +79,18 @@ public class DebeziumRecordParser extends RecordParser {
     private static final String OP_READE = "r";
 
     private boolean hasSchema;
+    private JsonNode originalRoot;
+    private JsonNode schema;
     private final Map<String, String> debeziumTypes = new HashMap<>();
     private final Map<String, String> classNames = new HashMap<>();
     private final Map<String, Map<String, String>> parameters = new HashMap<>();
 
     public DebeziumRecordParser(
-            boolean caseSensitive, TypeMapping typeMapping, List<ComputedColumn> computedColumns) {
-        super(caseSensitive, typeMapping, computedColumns);
+            boolean caseSensitive,
+            TypeMapping typeMapping,
+            List<ComputedColumn> computedColumns,
+            List<CdcMetadataConverter> metadataConverters) {
+        super(caseSensitive, typeMapping, computedColumns, metadataConverters);
     }
 
     @Override
@@ -125,7 +131,7 @@ public class DebeziumRecordParser extends RecordParser {
         hasSchema = false;
         if (node.has(FIELD_SCHEMA)) {
             root = node.get(FIELD_PAYLOAD);
-            JsonNode schema = node.get(FIELD_SCHEMA);
+            schema = node.get(FIELD_SCHEMA);
             if (!isNull(schema)) {
                 parseSchema(schema);
                 hasSchema = true;
@@ -133,6 +139,7 @@ public class DebeziumRecordParser extends RecordParser {
         } else {
             root = node;
         }
+        originalRoot = node;
     }
 
     private void parseSchema(JsonNode schema) {
@@ -214,6 +221,17 @@ public class DebeziumRecordParser extends RecordParser {
         }
 
         evalComputedColumns(resultMap, paimonFieldTypes);
+
+        for (CdcMetadataConverter metadataConverter : metadataConverters) {
+            String columnName = metadataConverter.columnName();
+            String metadata;
+            if (columnName.equals("schema")) {
+                metadata = metadataConverter.read(schema);
+            } else {
+                metadata = metadataConverter.read(originalRoot);
+            }
+            resultMap.put(columnName, metadata);
+        }
 
         return resultMap;
     }

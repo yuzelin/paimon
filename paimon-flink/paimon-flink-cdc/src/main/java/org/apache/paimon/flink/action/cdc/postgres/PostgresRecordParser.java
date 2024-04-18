@@ -96,27 +96,14 @@ public class PostgresRecordParser implements FlatMapFunction<String, RichCdcMult
     // NOTE: current table name is not converted by tableNameConverter
     private String currentTable;
     private String databaseName;
-    private final CdcMetadataConverter[] metadataConverters;
-
-    public PostgresRecordParser(
-            Configuration postgresConfig,
-            boolean caseSensitive,
-            TypeMapping typeMapping,
-            CdcMetadataConverter[] metadataConverters) {
-        this(
-                postgresConfig,
-                caseSensitive,
-                Collections.emptyList(),
-                typeMapping,
-                metadataConverters);
-    }
+    private final List<CdcMetadataConverter> metadataConverters;
 
     public PostgresRecordParser(
             Configuration postgresConfig,
             boolean caseSensitive,
             List<ComputedColumn> computedColumns,
             TypeMapping typeMapping,
-            CdcMetadataConverter[] metadataConverters) {
+            List<CdcMetadataConverter> metadataConverters) {
         this.caseSensitive = caseSensitive;
         this.computedColumns = computedColumns;
         this.typeMapping = typeMapping;

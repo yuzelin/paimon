@@ -18,6 +18,7 @@
 
 package org.apache.paimon.flink.action.cdc.format.canal;
 
+import org.apache.paimon.flink.action.cdc.CdcMetadataConverter;
 import org.apache.paimon.flink.action.cdc.ComputedColumn;
 import org.apache.paimon.flink.action.cdc.TypeMapping;
 import org.apache.paimon.flink.action.cdc.format.RecordParser;
@@ -83,8 +84,11 @@ public class CanalRecordParser extends RecordParser {
     }
 
     public CanalRecordParser(
-            boolean caseSensitive, TypeMapping typeMapping, List<ComputedColumn> computedColumns) {
-        super(caseSensitive, typeMapping, computedColumns);
+            boolean caseSensitive,
+            TypeMapping typeMapping,
+            List<ComputedColumn> computedColumns,
+            List<CdcMetadataConverter> metadataConverters) {
+        super(caseSensitive, typeMapping, computedColumns, metadataConverters);
     }
 
     @Override

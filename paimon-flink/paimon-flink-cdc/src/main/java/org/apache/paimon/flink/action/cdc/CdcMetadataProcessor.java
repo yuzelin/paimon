@@ -18,7 +18,11 @@
 
 package org.apache.paimon.flink.action.cdc;
 
+import org.apache.paimon.flink.action.cdc.format.DataFormat;
+
 import org.apache.paimon.shade.jackson2.com.fasterxml.jackson.databind.JsonNode;
+
+import javax.annotation.Nullable;
 
 import java.util.Arrays;
 import java.util.Map;
@@ -40,51 +44,64 @@ import static org.apache.paimon.utils.Preconditions.checkNotNull;
  */
 public enum CdcMetadataProcessor {
     MYSQL_METADATA_PROCESSOR(
-            SyncJobHandler.SourceType.MYSQL,
-            new CdcMetadataConverter.DatabaseNameConverter(),
-            new CdcMetadataConverter.TableNameConverter(),
-            new CdcMetadataConverter.OpTsConverter()),
+            new CdcMetadataConverters.DatabaseNameConverter(),
+            new CdcMetadataConverters.TableNameConverter(),
+            new CdcMetadataConverters.OpTsConverter()),
     POSTGRES_METADATA_PROCESSOR(
-            SyncJobHandler.SourceType.POSTGRES,
-            new CdcMetadataConverter.DatabaseNameConverter(),
-            new CdcMetadataConverter.TableNameConverter(),
-            new CdcMetadataConverter.SchemaNameConverter(),
-            new CdcMetadataConverter.OpTsConverter());
+            new CdcMetadataConverters.DatabaseNameConverter(),
+            new CdcMetadataConverters.TableNameConverter(),
+            new CdcMetadataConverters.SchemaNameConverter(),
+            new CdcMetadataConverters.OpTsConverter()),
 
-    private final SyncJobHandler.SourceType sourceType;
+    KAFKA_DEBEZIUM_META_PROCESSOR(
+            new CdcMetadataConverters.SchemaConverter(),
+            new CdcMetadataConverters.IngestionTimestampConverter(),
+            new CdcMetadataConverters.SourceTimestampConverter(),
+            new CdcMetadataConverters.SourceDatabaseConverter(),
+            new CdcMetadataConverters.SourceSchemaConverter(),
+            new CdcMetadataConverters.SourceTableConverter(),
+            new CdcMetadataConverters.SourcePropertiesConverter(),
+            new CdcMetadataConverters.OperationConverter());
 
     private final CdcMetadataConverter[] cdcMetadataConverters;
 
-    CdcMetadataProcessor(
-            SyncJobHandler.SourceType sourceType, CdcMetadataConverter... cdcMetadataConverters) {
-        this.sourceType = sourceType;
+    CdcMetadataProcessor(CdcMetadataConverter... cdcMetadataConverters) {
         this.cdcMetadataConverters = cdcMetadataConverters;
     }
 
-    private static final Map<SyncJobHandler.SourceType, Map<String, CdcMetadataConverter>>
-            METADATA_CONVERTERS =
-                    Arrays.stream(CdcMetadataProcessor.values())
-                            .collect(
-                                    Collectors.toMap(
-                                            CdcMetadataProcessor::sourceType,
-                                            value ->
-                                                    Arrays.stream(value.cdcMetadataConverters())
-                                                            .collect(
-                                                                    Collectors.toMap(
-                                                                            CdcMetadataConverter
-                                                                                    ::columnName,
-                                                                            Function.identity()))));
+    private Map<String, CdcMetadataConverter> converterMapping() {
+        return Arrays.stream(cdcMetadataConverters)
+                .collect(Collectors.toMap(CdcMetadataConverter::columnName, Function.identity()));
+    }
+
+    private static final Map<String, CdcMetadataConverter> MYSQL_METADATA_CONVERTERS =
+            MYSQL_METADATA_PROCESSOR.converterMapping();
+
+    private static final Map<String, CdcMetadataConverter> POSTGRES_METADATA_CONVERTERS =
+            POSTGRES_METADATA_PROCESSOR.converterMapping();
+
+    private static final Map<String, CdcMetadataConverter> KAFKA_DEBEZIUM_META_CONVERTERS =
+            KAFKA_DEBEZIUM_META_PROCESSOR.converterMapping();
 
     public static CdcMetadataConverter converter(
-            SyncJobHandler.SourceType sourceType, String column) {
-        return checkNotNull(checkNotNull(METADATA_CONVERTERS.get(sourceType)).get(column));
-    }
-
-    private CdcMetadataConverter[] cdcMetadataConverters() {
-        return cdcMetadataConverters;
-    }
-
-    private SyncJobHandler.SourceType sourceType() {
-        return sourceType;
+            SyncJobHandler.SourceType sourceType, @Nullable DataFormat dataFormat, String column) {
+        switch (sourceType) {
+            case MYSQL:
+                return MYSQL_METADATA_CONVERTERS.get(column);
+            case POSTGRES:
+                return POSTGRES_METADATA_CONVERTERS.get(column);
+            case KAFKA:
+                switch (checkNotNull(dataFormat)) {
+                    case DEBEZIUM_JSON:
+                        return KAFKA_DEBEZIUM_META_CONVERTERS.get(column);
+                    default:
+                        throw new UnsupportedOperationException(
+                                String.format(
+                                        "No metadata converters for source %s with format %s.",
+                                        sourceType, dataFormat));
+                }
+            default:
+                throw new UnsupportedOperationException("No metadata converters for " + sourceType);
+        }
     }
 }

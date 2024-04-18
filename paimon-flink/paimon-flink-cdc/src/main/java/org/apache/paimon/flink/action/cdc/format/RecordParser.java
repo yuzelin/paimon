@@ -18,6 +18,7 @@
 
 package org.apache.paimon.flink.action.cdc.format;
 
+import org.apache.paimon.flink.action.cdc.CdcMetadataConverter;
 import org.apache.paimon.flink.action.cdc.ComputedColumn;
 import org.apache.paimon.flink.action.cdc.TypeMapping;
 import org.apache.paimon.flink.sink.cdc.CdcRecord;
@@ -75,14 +76,19 @@ public abstract class RecordParser implements FlatMapFunction<String, RichCdcMul
     private final boolean caseSensitive;
     protected final TypeMapping typeMapping;
     protected final List<ComputedColumn> computedColumns;
+    protected final List<CdcMetadataConverter> metadataConverters;
 
     protected JsonNode root;
 
     public RecordParser(
-            boolean caseSensitive, TypeMapping typeMapping, List<ComputedColumn> computedColumns) {
+            boolean caseSensitive,
+            TypeMapping typeMapping,
+            List<ComputedColumn> computedColumns,
+            List<CdcMetadataConverter> metadataConverters) {
         this.caseSensitive = caseSensitive;
         this.typeMapping = typeMapping;
         this.computedColumns = computedColumns;
+        this.metadataConverters = metadataConverters;
     }
 
     @Nullable

@@ -84,7 +84,7 @@ public class MySqlRecordParser implements FlatMapFunction<String, RichCdcMultipl
     // NOTE: current table name is not converted by tableNameConverter
     private String currentTable;
     private String databaseName;
-    private final CdcMetadataConverter[] metadataConverters;
+    private final List<CdcMetadataConverter> metadataConverters;
 
     private final Set<String> nonPkTables = new HashSet<>();
 
@@ -93,7 +93,7 @@ public class MySqlRecordParser implements FlatMapFunction<String, RichCdcMultipl
             boolean caseSensitive,
             List<ComputedColumn> computedColumns,
             TypeMapping typeMapping,
-            CdcMetadataConverter[] metadataConverters) {
+            List<CdcMetadataConverter> metadataConverters) {
         this.caseSensitive = caseSensitive;
         this.computedColumns = computedColumns;
         this.typeMapping = typeMapping;
