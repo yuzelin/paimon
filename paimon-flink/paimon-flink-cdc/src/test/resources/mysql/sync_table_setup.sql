@@ -420,3 +420,23 @@ USE invalid_alter_bucket;
 CREATE TABLE t (
     k INT PRIMARY KEY
 );
+
+-- ################################################################################
+--  testInvalidAlterBucket
+-- ################################################################################
+
+CREATE DATABASE write_only_and_schema_evolution;
+USE write_only_and_schema_evolution;
+CREATE TABLE t (
+    k INT PRIMARY KEY,
+    v1 VARCHAR(10)
+);
+
+CREATE DATABASE test_xiaopeng_cc_dt;
+USE test_xiaopeng_cc_dt;
+
+CREATE TABLE t (
+    k INT PRIMARY KEY,
+    time1 VARCHAR(30),
+    time2 BIGINT
+);

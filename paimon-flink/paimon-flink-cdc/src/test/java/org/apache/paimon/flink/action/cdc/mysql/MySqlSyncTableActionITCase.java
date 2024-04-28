@@ -18,6 +18,7 @@
 
 package org.apache.paimon.flink.action.cdc.mysql;
 
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.FileSystemCatalogOptions;
 import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.schema.SchemaChange;
@@ -1363,5 +1364,92 @@ public class MySqlSyncTableActionITCase extends MySqlActionITCaseBase {
         assertThat(actual.get("pk").description()).isEqualTo("pk comment");
         assertThat(actual.get("c1").description()).isEqualTo("c1 comment");
         assertThat(actual.get("c2").description()).isEqualTo("c2 comment");
+    }
+
+    @Test
+    @Timeout(60)
+    public void testWriteOnlyAndSchemaEvolution() throws Exception {
+        Map<String, String> mySqlConfig = getBasicMySqlConfig();
+        mySqlConfig.put("database-name", "write_only_and_schema_evolution");
+        mySqlConfig.put("table-name", "t");
+
+        Map<String, String> tableConfig = getBasicTableConfig();
+        tableConfig.put(CoreOptions.WRITE_ONLY.key(), "true");
+
+        MySqlSyncTableAction action =
+                syncTableActionBuilder(mySqlConfig).withTableConfig(tableConfig).build();
+
+        runActionWithDefaultEnv(action);
+        FileStoreTable table = getFileStoreTable();
+
+        try (Statement statement = getStatement()) {
+            statement.executeUpdate("USE write_only_and_schema_evolution");
+            statement.executeUpdate("INSERT INTO t VALUES (1, 'one'), (2, 'two')");
+            RowType rowType =
+                    RowType.of(
+                            new DataType[] {DataTypes.INT().notNull(), DataTypes.VARCHAR(10)},
+                            new String[] {"k", "v1"});
+            List<String> primaryKeys = Collections.singletonList("k");
+            List<String> expected = Arrays.asList("+I[1, one]", "+I[2, two]");
+            waitForResult(expected, table, rowType, primaryKeys);
+
+            statement.executeUpdate("ALTER TABLE t ADD COLUMN v2 INT");
+            statement.executeUpdate("UPDATE t SET v2 = 1 WHERE k = 1");
+
+            rowType =
+                    RowType.of(
+                            new DataType[] {
+                                DataTypes.INT().notNull(), DataTypes.VARCHAR(10), DataTypes.INT()
+                            },
+                            new String[] {"k", "v1", "v2"});
+            expected = Arrays.asList("+I[1, one, 1]", "+I[2, two, NULL]");
+            waitForResult(expected, table, rowType, primaryKeys);
+        }
+    }
+
+    @Test
+    public void testXiaoPengCCDt() throws Exception {
+        Map<String, String> mySqlConfig = getBasicMySqlConfig();
+        mySqlConfig.put("database-name", "test_xiaopeng_cc_dt");
+        mySqlConfig.put("table-name", "t");
+
+        MySqlSyncTableAction action =
+                syncTableActionBuilder(mySqlConfig)
+                        .withPartitionKeys()
+                        .withPrimaryKeys("k")
+                        .withComputedColumnArgs(
+                                "_gen=gen_partition_stmt_dt(time1, time2, 3, 2024-04-29)")
+                        .build();
+        runActionWithDefaultEnv(action);
+
+        try (Statement statement = getStatement()) {
+            statement.execute("USE test_xiaopeng_cc_dt");
+            statement.executeUpdate(
+                    "INSERT INTO t VALUES (1, '2024-01-01 12:00:00.012', 10)"); // 2024-01-01
+            statement.executeUpdate("INSERT INTO t VALUES (2, '1970-01-01 11:00:00', 0)"); // null
+            statement.executeUpdate("INSERT INTO t VALUES (3, '2024-04-29', null)"); // null
+            statement.executeUpdate("INSERT INTO t VALUES (4, null, 1711929600000)"); // 2024-04-01
+        }
+
+        FileStoreTable table = getFileStoreTable();
+        RowType rowType =
+                RowType.of(
+                        new DataType[] {
+                            DataTypes.INT().notNull(),
+                            DataTypes.VARCHAR(30),
+                            DataTypes.BIGINT(),
+                            DataTypes.STRING()
+                        },
+                        new String[] {"k", "time1", "time2", "_gen"});
+
+        waitForResult(
+                Arrays.asList(
+                        "+I[1, 2024-01-01 12:00:00.012, 10, 2024-01-01]",
+                        "+I[2, 1970-01-01 11:00:00, 0, NULL]",
+                        "+I[3, 2024-04-29, NULL, NULL]",
+                        "+I[4, NULL, 1711929600000, 2024-04-01]"),
+                table,
+                rowType,
+                Collections.singletonList("k"));
     }
 }

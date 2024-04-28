@@ -18,12 +18,10 @@
 
 package org.apache.paimon.flink.action.cdc;
 
-import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypeFamily;
 import org.apache.paimon.types.DataTypeJsonParser;
 import org.apache.paimon.types.DataTypes;
-import org.apache.paimon.utils.DateTimeUtils;
 import org.apache.paimon.utils.SerializableSupplier;
 import org.apache.paimon.utils.StringUtils;
 
@@ -47,13 +45,14 @@ import static org.apache.paimon.utils.Preconditions.checkNotNull;
 public interface Expression extends Serializable {
 
     /** Return name of referenced field. */
-    String fieldReference();
+    String[] fieldReferences();
 
     /** Return {@link DataType} of computed value. */
     DataType outputType();
 
     /** Compute value from given input. Input and output are serialized to string. */
-    String eval(String input);
+    @Nullable
+    String eval(String... input);
 
     /** Expression function. */
     enum ExpressionFunction {
@@ -141,7 +140,32 @@ public interface Expression extends Serializable {
                             referencedField.fieldType(),
                             referencedField.literals());
                 }),
-        CAST((typeMapping, caseSensitive, args) -> cast(args));
+        CAST((typeMapping, caseSensitive, args) -> cast(args)),
+
+        /** For xiaopeng. */
+        GEN_PARTITION_STMT_DT(
+                (typeMapping, caseSensitive, args) -> {
+                    checkArgument(
+                            args.length == 4,
+                            "Arguments for gen_partition_stmt_dt: column_a, column_b, "
+                                    + "column_b_precision, excluded_partition.");
+                    return new GenPartitionStmtDt(
+                            args[0].trim(), args[1].trim(), args[2].trim(), args[3].trim());
+                }),
+
+        GEN_PARTITION_STMT_INT(
+                (typeMapping, caseSensitive, args) -> {
+                    checkArgument(
+                            args.length == 5,
+                            "Arguments for gen_partition_stmt_int: column_a, column_a_precision, column_b, "
+                                    + "column_b_precision, excluded_partition.");
+                    return new GenPartitionStmtInt(
+                            args[0].trim(),
+                            args[1].trim(),
+                            args[2].trim(),
+                            args[3].trim(),
+                            args[4].trim());
+                });
 
         public final ExpressionCreator creator;
 
@@ -291,14 +315,14 @@ public interface Expression extends Serializable {
 
         private static final List<Integer> SUPPORTED_PRECISION = Arrays.asList(0, 3, 6, 9);
 
-        private final String fieldReference;
+        private final String[] fieldReferences;
         @Nullable private final Integer precision;
 
         private transient Function<LocalDateTime, T> converter;
 
         private TemporalExpressionBase(
                 String fieldReference, DataType fieldType, @Nullable Integer precision) {
-            this.fieldReference = fieldReference;
+            this.fieldReferences = new String[] {fieldReference};
 
             // when the input is INTEGER_NUMERIC, the precision must be set
             if (fieldType.getTypeRoot().getFamilies().contains(DataTypeFamily.INTEGER_NUMERIC)
@@ -316,8 +340,8 @@ public interface Expression extends Serializable {
         }
 
         @Override
-        public String fieldReference() {
-            return fieldReference;
+        public String[] fieldReferences() {
+            return fieldReferences;
         }
 
         /** If not, this must be overridden! */
@@ -327,42 +351,19 @@ public interface Expression extends Serializable {
         }
 
         @Override
-        public String eval(String input) {
+        @Nullable
+        public String eval(String... inputs) {
             if (converter == null) {
                 this.converter = createConverter();
             }
 
-            T result = converter.apply(toLocalDateTime(input));
-            return String.valueOf(result);
-        }
-
-        private LocalDateTime toLocalDateTime(String input) {
-            if (precision == null) {
-                return DateTimeUtils.toLocalDateTime(input, 9);
-            } else {
-                long numericValue = Long.parseLong(input);
-                long milliseconds = 0;
-                int nanosOfMillisecond = 0;
-                switch (precision) {
-                    case 0:
-                        milliseconds = numericValue * 1000L;
-                        break;
-                    case 3:
-                        milliseconds = numericValue;
-                        break;
-                    case 6:
-                        milliseconds = numericValue / 1000;
-                        nanosOfMillisecond = (int) (numericValue % 1000 * 1000);
-                        break;
-                    case 9:
-                        milliseconds = numericValue / 1_000_000;
-                        nanosOfMillisecond = (int) (numericValue % 1_000_000);
-                        break;
-                        // no error case because precision is validated
-                }
-                return Timestamp.fromEpochMillis(milliseconds, nanosOfMillisecond)
-                        .toLocalDateTime();
+            String input = inputs[0];
+            if (input == null) {
+                return null;
             }
+
+            T result = converter.apply(ExpressionUtils.toLocalDateTime(input, precision));
+            return String.valueOf(result);
         }
 
         protected abstract Function<LocalDateTime, T> createConverter();
@@ -454,20 +455,20 @@ public interface Expression extends Serializable {
 
         private static final long serialVersionUID = 1L;
 
-        private final String fieldReference;
+        private final String[] fieldReferences;
         private final int beginInclusive;
         @Nullable private final Integer endExclusive;
 
         private Substring(
                 String fieldReference, int beginInclusive, @Nullable Integer endExclusive) {
-            this.fieldReference = fieldReference;
+            this.fieldReferences = new String[] {fieldReference};
             this.beginInclusive = beginInclusive;
             this.endExclusive = endExclusive;
         }
 
         @Override
-        public String fieldReference() {
-            return fieldReference;
+        public String[] fieldReferences() {
+            return fieldReferences;
         }
 
         @Override
@@ -476,7 +477,11 @@ public interface Expression extends Serializable {
         }
 
         @Override
-        public String eval(String input) {
+        public String eval(String... inputs) {
+            String input = inputs[0];
+            if (input == null) {
+                return null;
+            }
             try {
                 if (endExclusive == null) {
                     return input.substring(beginInclusive);
@@ -496,14 +501,14 @@ public interface Expression extends Serializable {
     final class TruncateComputer implements Expression {
         private static final long serialVersionUID = 1L;
 
-        private final String fieldReference;
+        private final String[] fieldReferences;
 
         private final DataType fieldType;
 
         private final int width;
 
         TruncateComputer(String fieldReference, DataType fieldType, String literal) {
-            this.fieldReference = fieldReference;
+            this.fieldReferences = new String[] {fieldReference};
             this.fieldType = fieldType;
             try {
                 this.width = Integer.parseInt(literal);
@@ -516,8 +521,8 @@ public interface Expression extends Serializable {
         }
 
         @Override
-        public String fieldReference() {
-            return fieldReference;
+        public String[] fieldReferences() {
+            return fieldReferences;
         }
 
         @Override
@@ -526,7 +531,11 @@ public interface Expression extends Serializable {
         }
 
         @Override
-        public String eval(String input) {
+        public String eval(String... inputs) {
+            String input = inputs[0];
+            if (input == null) {
+                return null;
+            }
             switch (fieldType.getTypeRoot()) {
                 case TINYINT:
                 case SMALLINT:
@@ -584,6 +593,8 @@ public interface Expression extends Serializable {
 
         private static final long serialVersionUID = 1L;
 
+        private static final String[] EMPTY_FIELD_REFERENCES = new String[0];
+
         private final String value;
 
         private final DataType dataType;
@@ -594,8 +605,8 @@ public interface Expression extends Serializable {
         }
 
         @Override
-        public String fieldReference() {
-            return null;
+        public String[] fieldReferences() {
+            return EMPTY_FIELD_REFERENCES;
         }
 
         @Override
@@ -604,8 +615,115 @@ public interface Expression extends Serializable {
         }
 
         @Override
-        public String eval(String input) {
+        public String eval(String... inputs) {
             return value;
+        }
+    }
+
+    /** For xiaopeng. */
+    final class GenPartitionStmtDt implements Expression {
+
+        private static final long serialVersionUID = 1L;
+
+        private final String[] fieldReferences;
+        private final int bPrecision;
+        private final String excludedString;
+
+        private GenPartitionStmtDt(
+                String fieldRefA, String fieldRefB, String bPrecision, String excludedString) {
+            this.fieldReferences = new String[] {fieldRefA, fieldRefB};
+
+            checkArgument(!bPrecision.isEmpty(), "Precision of column b must be set.");
+            this.bPrecision = Integer.parseInt(bPrecision);
+
+            this.excludedString = excludedString;
+        }
+
+        @Override
+        public String[] fieldReferences() {
+            return fieldReferences;
+        }
+
+        @Override
+        public DataType outputType() {
+            return DataTypes.STRING();
+        }
+
+        @Override
+        public String eval(String... inputs) {
+            String columnA = inputs[0];
+            String columnB = inputs[1];
+
+            if (columnA != null) {
+                LocalDateTime localDateTime = ExpressionUtils.toLocalDateTime(columnA, null);
+                String formattedA = localDateTime.format(ExpressionUtils.DEFAULT_FORMATTER);
+                if (!excludedString.equals(formattedA) && !"1970-01-01".equals(formattedA)) {
+                    return formattedA;
+                }
+            }
+
+            if (columnB == null || "0".equals(columnB)) {
+                return null;
+            }
+
+            return ExpressionUtils.fromUnixTime(columnB, bPrecision);
+        }
+    }
+
+    /** For xiaopeng. */
+    final class GenPartitionStmtInt implements Expression {
+
+        private static final long serialVersionUID = 1L;
+
+        private final String[] fieldReferences;
+        private final int aPrecision;
+        private final int bPrecision;
+        private final String excludedString;
+
+        private GenPartitionStmtInt(
+                String fieldRefA,
+                String aPrecision,
+                String fieldRefB,
+                String bPrecision,
+                String excludedString) {
+            this.fieldReferences = new String[] {fieldRefA, fieldRefB};
+            checkArgument(!aPrecision.isEmpty(), "Precision of column b must be set.");
+            this.aPrecision = Integer.parseInt(aPrecision);
+
+            checkArgument(!bPrecision.isEmpty(), "Precision of column b must be set.");
+            this.bPrecision = Integer.parseInt(bPrecision);
+
+            this.excludedString = excludedString;
+        }
+
+        @Override
+        public String[] fieldReferences() {
+            return fieldReferences;
+        }
+
+        @Override
+        public DataType outputType() {
+            return DataTypes.STRING();
+        }
+
+        @Override
+        public String eval(String... inputs) {
+            String columnA = inputs[0];
+            String columnB = inputs[1];
+
+            if (columnA != null && !"0".equals(columnA)) {
+                LocalDateTime localDateTime = ExpressionUtils.toLocalDateTime(columnA, aPrecision);
+                String formattedA = localDateTime.format(ExpressionUtils.DEFAULT_FORMATTER);
+                if (!excludedString.equals(formattedA) && !"1970-01-01".equals(formattedA)) {
+                    return formattedA;
+                }
+            }
+
+            if (columnB == null || "0".equals(columnB)) {
+                return null;
+            }
+
+            return ExpressionUtils.fromUnixTime(columnB, bPrecision);
         }
     }
 }
