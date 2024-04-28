@@ -24,10 +24,7 @@ import javax.annotation.Nullable;
 
 import java.io.Serializable;
 
-/**
- * A Computed column's value is computed from input columns. Only expression with at most two inputs
- * (with referenced field at the first) is supported currently.
- */
+/** A Computed column's value is computed from input columns. */
 public class ComputedColumn implements Serializable {
 
     private static final long serialVersionUID = 1L;
@@ -48,17 +45,13 @@ public class ComputedColumn implements Serializable {
         return expression.outputType();
     }
 
-    @Nullable
-    public String fieldReference() {
-        return expression.fieldReference();
+    public String[] fieldReferences() {
+        return expression.fieldReferences();
     }
 
     /** Compute column's value from given argument. Return null if input is null. */
     @Nullable
-    public String eval(@Nullable String input) {
-        if (fieldReference() != null && input == null) {
-            return null;
-        }
-        return expression.eval(input);
+    public String eval(String... inputs) {
+        return expression.eval(inputs);
     }
 }

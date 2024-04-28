@@ -21,6 +21,7 @@ package org.apache.paimon.flink.action.cdc.mysql;
 import org.apache.paimon.flink.action.cdc.CdcMetadataConverter;
 import org.apache.paimon.flink.action.cdc.CdcSourceRecord;
 import org.apache.paimon.flink.action.cdc.ComputedColumn;
+import org.apache.paimon.flink.action.cdc.ExpressionUtils;
 import org.apache.paimon.flink.action.cdc.TypeMapping;
 import org.apache.paimon.flink.action.cdc.format.debezium.DebeziumSchemaUtils;
 import org.apache.paimon.flink.action.cdc.mysql.format.DebeziumEvent;
@@ -254,9 +255,9 @@ public class MySqlRecordParser implements FlatMapFunction<CdcSourceRecord, RichC
 
         // generate values of computed columns
         for (ComputedColumn computedColumn : computedColumns) {
-            resultMap.put(
-                    computedColumn.columnName(),
-                    computedColumn.eval(resultMap.get(computedColumn.fieldReference())));
+            String[] inputs =
+                    ExpressionUtils.getInputs(computedColumn.fieldReferences(), resultMap);
+            resultMap.put(computedColumn.columnName(), computedColumn.eval(inputs));
         }
 
         for (CdcMetadataConverter metadataConverter : metadataConverters) {

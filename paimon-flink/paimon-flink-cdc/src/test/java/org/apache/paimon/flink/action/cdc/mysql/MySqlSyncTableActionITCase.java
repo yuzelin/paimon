@@ -1413,4 +1413,50 @@ public class MySqlSyncTableActionITCase extends MySqlActionITCaseBase {
             waitForResult(expected, table, rowType, primaryKeys);
         }
     }
+
+    @Test
+    public void testXiaoPengCCDt() throws Exception {
+        Map<String, String> mySqlConfig = getBasicMySqlConfig();
+        mySqlConfig.put("database-name", "test_xiaopeng_cc_dt");
+        mySqlConfig.put("table-name", "t");
+
+        MySqlSyncTableAction action =
+                syncTableActionBuilder(mySqlConfig)
+                        .withPartitionKeys()
+                        .withPrimaryKeys("k")
+                        .withComputedColumnArgs(
+                                "_gen=gen_partition_stmt_dt(time1, time2, 3, 2024-04-29)")
+                        .build();
+        runActionWithDefaultEnv(action);
+
+        try (Statement statement = getStatement()) {
+            statement.execute("USE test_xiaopeng_cc_dt");
+            statement.executeUpdate(
+                    "INSERT INTO t VALUES (1, '2024-01-01 12:00:00.012', 10)"); // 2024-01-01
+            statement.executeUpdate("INSERT INTO t VALUES (2, '1970-01-01 11:00:00', 0)"); // null
+            statement.executeUpdate("INSERT INTO t VALUES (3, '2024-04-29', null)"); // null
+            statement.executeUpdate("INSERT INTO t VALUES (4, null, 1711929600000)"); // 2024-04-01
+        }
+
+        FileStoreTable table = getFileStoreTable();
+        RowType rowType =
+                RowType.of(
+                        new DataType[] {
+                                DataTypes.INT().notNull(),
+                                DataTypes.VARCHAR(30),
+                                DataTypes.BIGINT(),
+                                DataTypes.STRING()
+                        },
+                        new String[] {"k", "time1", "time2", "_gen"});
+
+        waitForResult(
+                Arrays.asList(
+                        "+I[1, 2024-01-01 12:00:00.012, 10, 2024-01-01]",
+                        "+I[2, 1970-01-01 11:00:00, 0, NULL]",
+                        "+I[3, 2024-04-29, NULL, NULL]",
+                        "+I[4, NULL, 1711929600000, 2024-04-01]"),
+                table,
+                rowType,
+                Collections.singletonList("k"));
+    }
 }

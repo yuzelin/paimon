@@ -20,6 +20,7 @@ package org.apache.paimon.flink.action.cdc.format;
 
 import org.apache.paimon.flink.action.cdc.CdcSourceRecord;
 import org.apache.paimon.flink.action.cdc.ComputedColumn;
+import org.apache.paimon.flink.action.cdc.ExpressionUtils;
 import org.apache.paimon.flink.action.cdc.TypeMapping;
 import org.apache.paimon.flink.sink.cdc.CdcRecord;
 import org.apache.paimon.flink.sink.cdc.RichCdcMultiplexRecord;
@@ -175,9 +176,10 @@ public abstract class RecordParser
             Map<String, String> rowData, RowType.Builder rowTypeBuilder) {
         computedColumns.forEach(
                 computedColumn -> {
+                    String[] inputs = ExpressionUtils.getInputs(computedColumn.fieldReferences(), rowData);
                     rowData.put(
                             computedColumn.columnName(),
-                            computedColumn.eval(rowData.get(computedColumn.fieldReference())));
+                            computedColumn.eval(inputs));
                     rowTypeBuilder.field(computedColumn.columnName(), computedColumn.columnType());
                 });
     }
