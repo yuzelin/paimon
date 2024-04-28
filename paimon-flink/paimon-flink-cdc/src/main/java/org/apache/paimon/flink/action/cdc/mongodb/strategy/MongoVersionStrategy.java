@@ -19,6 +19,7 @@
 package org.apache.paimon.flink.action.cdc.mongodb.strategy;
 
 import org.apache.paimon.flink.action.cdc.ComputedColumn;
+import org.apache.paimon.flink.action.cdc.ExpressionUtils;
 import org.apache.paimon.flink.action.cdc.mongodb.SchemaAcquisitionMode;
 import org.apache.paimon.flink.sink.cdc.RichCdcMultiplexRecord;
 import org.apache.paimon.types.DataType;
@@ -157,8 +158,9 @@ public interface MongoVersionStrategy {
         computedColumns.forEach(
                 computedColumn -> {
                     String columnName = computedColumn.columnName();
-                    String fieldReference = computedColumn.fieldReference();
-                    String computedValue = computedColumn.eval(parsedRow.get(fieldReference));
+                    String[] inputs =
+                            ExpressionUtils.getInputs(computedColumn.fieldReferences(), parsedRow);
+                    String computedValue = computedColumn.eval(inputs);
 
                     resultMap.put(columnName, computedValue);
                     fieldTypes.put(columnName, computedColumn.columnType());
