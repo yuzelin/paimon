@@ -662,7 +662,7 @@ public interface Expression extends Serializable {
                 }
             }
 
-            if (columnB == null || "0".equals(columnB)) {
+            if (columnB == null) {
                 return null;
             }
 
@@ -719,7 +719,7 @@ public interface Expression extends Serializable {
                 }
             }
 
-            if (columnB == null || "0".equals(columnB)) {
+            if (columnB == null) {
                 return null;
             }
 
