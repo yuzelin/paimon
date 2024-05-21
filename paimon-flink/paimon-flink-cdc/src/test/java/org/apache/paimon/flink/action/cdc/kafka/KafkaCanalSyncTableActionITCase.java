@@ -20,17 +20,25 @@ package org.apache.paimon.flink.action.cdc.kafka;
 
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.FileSystemCatalogOptions;
+import org.apache.paimon.flink.FlinkCatalog;
+import org.apache.paimon.options.Options;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.utils.BlockingIterator;
 
 import org.apache.flink.core.execution.JobClient;
+import org.apache.flink.table.api.EnvironmentSettings;
+import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
+import org.apache.flink.types.Row;
+import org.apache.flink.util.CloseableIterator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -1142,5 +1150,113 @@ public class KafkaCanalSyncTableActionITCase extends KafkaSyncTableActionITCase 
     @Timeout(60)
     public void testWaterMarkSyncTable() throws Exception {
         testWaterMarkSyncTable(CANAL);
+    }
+
+    @Test
+    public void testRowKindField() throws Exception {
+        String topic = "my_test";
+        createTestTopic(topic, 1, 1);
+
+        writeRecordsToKafka(topic, "kafka/canal/table/softdelete/canal-data-1.txt");
+        writeRecordsToKafka(topic, "kafka/canal/table/softdelete/canal-data-2.txt");
+        // writeRecordsToKafka(topic, "kafka/canal/table/softdelete/canal-data-3.txt");
+
+        Map<String, String> kafkaConfig = getBasicKafkaConfig();
+        kafkaConfig.put(VALUE_FORMAT.key(), "canal-json");
+        kafkaConfig.put(TOPIC.key(), topic);
+
+        Map<String, String> tableConfig = getBasicTableConfig();
+        tableConfig.put(
+                CoreOptions.CHANGELOG_PRODUCER.key(),
+                CoreOptions.ChangelogProducer.INPUT.toString());
+        // tableConfig.put(CoreOptions.ROWKIND_FIELD.key(), "cdc_rowkind");
+
+        KafkaSyncTableAction action =
+                syncTableActionBuilder(kafkaConfig)
+                        .withTableConfig(tableConfig)
+                        .withPartitionKeys("pt")
+                        .withPrimaryKeys("_id", "pt")
+                        .build();
+        runActionWithDefaultEnv(action);
+
+        RowType rowType =
+                RowType.of(
+                        new DataType[] {
+                            DataTypes.INT().notNull(),
+                            DataTypes.INT().notNull(),
+                            DataTypes.VARCHAR(10),
+                            DataTypes.STRING()
+                        },
+                        new String[] {"pt", "_id", "v1", "cdc_rowkind"});
+
+        Thread.sleep(4_000);
+
+        //        waitForResult(
+        //                Arrays.asList("+I[1, 1, newvalue, +I]"),
+        //                getFileStoreTable(tableName),
+        //                rowType,
+        //                Arrays.asList("_id", "pt"));
+
+        // streaming read
+        StreamTableEnvironment tEnv =
+                StreamTableEnvironment.create(env, EnvironmentSettings.inStreamingMode());
+        FlinkCatalog flinkCatalog =
+                new FlinkCatalog(
+                        catalog,
+                        "paimon",
+                        "default",
+                        this.getClass().getClassLoader(),
+                        new Options());
+        tEnv.registerCatalog("paimon", flinkCatalog);
+        tEnv.useCatalog("paimon");
+
+        // sql1(tEnv, "ALTER TABLE `%s` set ('rowkind.field' = 'cdc_rowkind')", tableName).close();
+
+        BlockingIterator<Row, Row> iterator =
+                sql1(
+                        tEnv,
+                        "SELECT * FROM `%s` /*+OPTIONS('scan.timestamp-millis'='0', 'rowkind.field' = 'cdc_rowkind')*/",
+                        tableName);
+        List<Row> result = iterator.collect(2);
+        System.out.println("Streaming read: " + result);
+        iterator.close();
+
+        iterator =
+                sql1(
+                        tEnv,
+                        "SELECT * FROM `%s$audit_log` /*+OPTIONS('scan.timestamp-millis'='0')*/",
+                        tableName);
+        result = iterator.collect(3);
+        System.out.println("Streaming read audit_log: " + result);
+        iterator.close();
+
+        // batch read
+        StreamTableEnvironment bEnv =
+                StreamTableEnvironment.create(env, EnvironmentSettings.inBatchMode());
+        bEnv.registerCatalog("paimon", flinkCatalog);
+        bEnv.useCatalog("paimon");
+        result = sql2(bEnv, "SELECT * FROM `%s`", tableName);
+        System.out.println("Batch read: " + result);
+
+        result = sql2(bEnv, "SELECT * FROM `%s$audit_log`", tableName);
+        System.out.println("Batch read audit_log: " + result);
+    }
+
+    private BlockingIterator<Row, Row> sql1(
+            StreamTableEnvironment tEnv, String sql, Object... args) {
+        return BlockingIterator.of(tEnv.executeSql(String.format(sql, args)).collect());
+    }
+
+    private List<Row> sql2(StreamTableEnvironment bEnv, String sql, Object... args)
+            throws Exception {
+        List<Row> result = new ArrayList<>();
+        try (CloseableIterator<Row> iterator =
+                bEnv.executeSql(String.format(sql, args)).collect()) {
+            for (CloseableIterator<Row> it = iterator; it.hasNext(); ) {
+                Row row = it.next();
+                result.add(row);
+            }
+        }
+        return result;
     }
 }

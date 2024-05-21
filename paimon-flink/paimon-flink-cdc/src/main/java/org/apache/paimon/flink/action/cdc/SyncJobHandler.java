@@ -38,6 +38,8 @@ import org.apache.flink.connector.pulsar.common.config.PulsarOptions;
 import org.apache.flink.connector.pulsar.source.PulsarSourceOptions;
 import org.apache.flink.streaming.connectors.kafka.table.KafkaConnectorOptions;
 
+import javax.annotation.Nullable;
+
 import java.util.List;
 import java.util.Map;
 
@@ -196,7 +198,8 @@ public class SyncJobHandler {
             boolean caseSensitive,
             List<ComputedColumn> computedColumns,
             TypeMapping typeMapping,
-            CdcMetadataConverter[] metadataConverters) {
+            CdcMetadataConverter[] metadataConverters,
+            @Nullable String rowKindFieldName) {
         switch (sourceType) {
             case MYSQL:
                 return new MySqlRecordParser(
@@ -215,7 +218,9 @@ public class SyncJobHandler {
             case KAFKA:
             case PULSAR:
                 DataFormat dataFormat = provideDataFormat();
-                return dataFormat.createParser(caseSensitive, typeMapping, computedColumns);
+                return dataFormat
+                        .createParser(caseSensitive, typeMapping, computedColumns)
+                        .withRowKindFieldName(rowKindFieldName);
             case MONGODB:
                 return new MongoDBRecordParser(caseSensitive, computedColumns, cdcSourceConfig);
             default:

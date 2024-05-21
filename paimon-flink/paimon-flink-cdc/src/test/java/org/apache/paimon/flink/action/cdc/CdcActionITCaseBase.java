@@ -341,6 +341,10 @@ public class CdcActionITCaseBase extends ActionITCaseBase {
             args.addAll(listToMultiArgs("--computed-column", computedColumnArgs));
             args.addAll(listToMultiArgs("--metadata-column", metadataColumns));
 
+            // TODO test
+            args.add("--rowkind_field");
+            args.add("cdc_rowkind");
+
             return createAction(clazz, args);
         }
     }
