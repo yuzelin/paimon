@@ -80,6 +80,8 @@ public abstract class RecordParser
     protected final TypeMapping typeMapping;
     protected final List<ComputedColumn> computedColumns;
 
+    @Nullable String rowKindFieldName;
+
     protected JsonNode root;
 
     public RecordParser(
@@ -87,6 +89,11 @@ public abstract class RecordParser
         this.caseSensitive = caseSensitive;
         this.typeMapping = typeMapping;
         this.computedColumns = computedColumns;
+    }
+
+    public RecordParser withRowKindFieldName(@Nullable String rowKindFieldName) {
+        this.rowKindFieldName = rowKindFieldName;
+        return this;
     }
 
     @Nullable
@@ -198,6 +205,11 @@ public abstract class RecordParser
             JsonNode jsonNode, RowKind rowKind, List<RichCdcMultiplexRecord> records) {
         RowType.Builder rowTypeBuilder = RowType.builder();
         Map<String, String> rowData = this.extractRowData(jsonNode, rowTypeBuilder);
+        if (rowKindFieldName != null) {
+            rowData.put(rowKindFieldName, rowKind.shortString());
+            rowKind = RowKind.INSERT;
+            rowTypeBuilder.field(rowKindFieldName, DataTypes.STRING());
+        }
         records.add(createRecord(rowKind, rowData, rowTypeBuilder.build().getFields()));
     }
 
