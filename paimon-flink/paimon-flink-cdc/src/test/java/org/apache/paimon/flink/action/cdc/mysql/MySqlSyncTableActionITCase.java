@@ -1426,7 +1426,8 @@ public class MySqlSyncTableActionITCase extends MySqlActionITCaseBase {
             statement.execute("USE test_xiaopeng_cc_dt");
             statement.executeUpdate(
                     "INSERT INTO t VALUES (1, '2024-01-01 12:00:00.012', 10)"); // 2024-01-01
-            statement.executeUpdate("INSERT INTO t VALUES (2, '1970-01-01 11:00:00', 0)"); // null
+            statement.executeUpdate(
+                    "INSERT INTO t VALUES (2, '1970-01-01 11:00:00', 0)"); // 1970-01-01
             statement.executeUpdate("INSERT INTO t VALUES (3, '2024-04-29', null)"); // null
             statement.executeUpdate("INSERT INTO t VALUES (4, null, 1711929600000)"); // 2024-04-01
         }
@@ -1445,7 +1446,7 @@ public class MySqlSyncTableActionITCase extends MySqlActionITCaseBase {
         waitForResult(
                 Arrays.asList(
                         "+I[1, 2024-01-01 12:00:00.012, 10, 2024-01-01]",
-                        "+I[2, 1970-01-01 11:00:00, 0, NULL]",
+                        "+I[2, 1970-01-01 11:00:00, 0, 1970-01-01]",
                         "+I[3, 2024-04-29, NULL, NULL]",
                         "+I[4, NULL, 1711929600000, 2024-04-01]"),
                 table,
