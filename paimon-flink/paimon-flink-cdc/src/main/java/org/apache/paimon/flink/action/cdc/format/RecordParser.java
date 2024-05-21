@@ -176,10 +176,9 @@ public abstract class RecordParser
             Map<String, String> rowData, RowType.Builder rowTypeBuilder) {
         computedColumns.forEach(
                 computedColumn -> {
-                    String[] inputs = ExpressionUtils.getInputs(computedColumn.fieldReferences(), rowData);
-                    rowData.put(
-                            computedColumn.columnName(),
-                            computedColumn.eval(inputs));
+                    String[] inputs =
+                            ExpressionUtils.getInputs(computedColumn.fieldReferences(), rowData);
+                    rowData.put(computedColumn.columnName(), computedColumn.eval(inputs));
                     rowTypeBuilder.field(computedColumn.columnName(), computedColumn.columnType());
                 });
     }
