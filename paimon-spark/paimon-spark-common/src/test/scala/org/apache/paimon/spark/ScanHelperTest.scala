@@ -21,8 +21,7 @@ package org.apache.paimon.spark
 import org.apache.paimon.CoreOptions
 import org.apache.paimon.data.BinaryRow
 import org.apache.paimon.io.DataFileMeta
-import org.apache.paimon.manifest.FileSource
-import org.apache.paimon.table.source.{DataSplit, Split}
+import org.apache.paimon.table.source.{DataSplit, RawFile, Split}
 
 import org.junit.jupiter.api.Assertions
 
@@ -42,7 +41,7 @@ class ScanHelperTest extends PaimonSparkTestBase {
       0.until(fileNum).foreach {
         i =>
           val path = s"f$i.parquet"
-          files += DataFileMeta.forAppend(path, 750000, 30000, null, 0, 29999, 1, FileSource.APPEND)
+          files += DataFileMeta.forAppend(path, 750000, 30000, null, 0, 29999, 1)
       }
 
       val dataSplits = mutable.ArrayBuffer.empty[Split]

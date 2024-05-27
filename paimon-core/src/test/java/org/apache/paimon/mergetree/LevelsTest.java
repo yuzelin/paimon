@@ -20,7 +20,6 @@ package org.apache.paimon.mergetree;
 
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.io.DataFileMeta;
-import org.apache.paimon.manifest.FileSource;
 
 import org.junit.jupiter.api.Test;
 
@@ -82,7 +81,6 @@ public class LevelsTest {
                 0,
                 level,
                 0L,
-                null,
-                FileSource.APPEND);
+                null);
     }
 }

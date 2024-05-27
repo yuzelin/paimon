@@ -25,7 +25,6 @@ import org.apache.paimon.fileindex.FileIndexOptions;
 import org.apache.paimon.format.FileFormat;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.fs.local.LocalFileIO;
-import org.apache.paimon.manifest.FileSource;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.statistics.SimpleColStatsCollector;
 import org.apache.paimon.types.DataType;
@@ -89,8 +88,7 @@ public class RollingFileWriterTest {
                                         StatsCollectorFactories.createStatsFactories(
                                                 new CoreOptions(new HashMap<>()),
                                                 SCHEMA.getFieldNames()),
-                                        new FileIndexOptions(),
-                                        FileSource.APPEND),
+                                        new FileIndexOptions()),
                         TARGET_FILE_SIZE);
     }
 

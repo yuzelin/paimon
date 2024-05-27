@@ -24,7 +24,6 @@ import org.apache.paimon.format.FormatWriterFactory;
 import org.apache.paimon.format.SimpleStatsExtractor;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
-import org.apache.paimon.manifest.FileSource;
 import org.apache.paimon.statistics.SimpleColStatsCollector;
 import org.apache.paimon.stats.SimpleStats;
 import org.apache.paimon.stats.SimpleStatsConverter;
@@ -49,7 +48,6 @@ public class RowDataFileWriter extends StatsCollectingSingleFileWriter<InternalR
     private final LongCounter seqNumCounter;
     private final SimpleStatsConverter statsArraySerializer;
     @Nullable private final FileIndexWriter fileIndexWriter;
-    private final FileSource fileSource;
 
     public RowDataFileWriter(
             FileIO fileIO,
@@ -61,8 +59,7 @@ public class RowDataFileWriter extends StatsCollectingSingleFileWriter<InternalR
             LongCounter seqNumCounter,
             String fileCompression,
             SimpleColStatsCollector.Factory[] statsCollectors,
-            FileIndexOptions fileIndexOptions,
-            FileSource fileSource) {
+            FileIndexOptions fileIndexOptions) {
         super(
                 fileIO,
                 factory,
@@ -78,7 +75,6 @@ public class RowDataFileWriter extends StatsCollectingSingleFileWriter<InternalR
         this.fileIndexWriter =
                 FileIndexWriter.create(
                         fileIO, toFileIndexPath(path), writeSchema, fileIndexOptions);
-        this.fileSource = fileSource;
     }
 
     @Override
@@ -115,7 +111,6 @@ public class RowDataFileWriter extends StatsCollectingSingleFileWriter<InternalR
                 indexResult.independentIndexFile() == null
                         ? Collections.emptyList()
                         : Collections.singletonList(indexResult.independentIndexFile()),
-                indexResult.embeddedIndexBytes(),
-                fileSource);
+                indexResult.embeddedIndexBytes());
     }
 }

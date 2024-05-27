@@ -28,7 +28,6 @@ import org.apache.paimon.format.FormatWriterFactory;
 import org.apache.paimon.format.SimpleStatsExtractor;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
-import org.apache.paimon.manifest.FileSource;
 import org.apache.paimon.statistics.SimpleColStatsCollector;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.FileStorePathFactory;
@@ -82,12 +81,9 @@ public class KeyValueFileWriterFactory {
         return formatContext.pathFactory(level);
     }
 
-    public RollingFileWriter<KeyValue, DataFileMeta> createRollingMergeTreeFileWriter(
-            int level, FileSource fileSource) {
+    public RollingFileWriter<KeyValue, DataFileMeta> createRollingMergeTreeFileWriter(int level) {
         return new RollingFileWriter<>(
-                () ->
-                        createDataFileWriter(
-                                formatContext.pathFactory(level).newPath(), level, fileSource),
+                () -> createDataFileWriter(formatContext.pathFactory(level).newPath(), level),
                 suggestedFileSize);
     }
 
@@ -95,14 +91,11 @@ public class KeyValueFileWriterFactory {
         return new RollingFileWriter<>(
                 () ->
                         createDataFileWriter(
-                                formatContext.pathFactory(level).newChangelogPath(),
-                                level,
-                                FileSource.APPEND),
+                                formatContext.pathFactory(level).newChangelogPath(), level),
                 suggestedFileSize);
     }
 
-    private KeyValueDataFileWriter createDataFileWriter(
-            Path path, int level, FileSource fileSource) {
+    private KeyValueDataFileWriter createDataFileWriter(Path path, int level) {
         KeyValueSerializer kvSerializer = new KeyValueSerializer(keyType, valueType);
         return new KeyValueDataFileWriter(
                 fileIO,
@@ -115,8 +108,7 @@ public class KeyValueFileWriterFactory {
                 schemaId,
                 level,
                 formatContext.compression(level),
-                options,
-                fileSource);
+                options);
     }
 
     public void deleteFile(String filename, int level) {

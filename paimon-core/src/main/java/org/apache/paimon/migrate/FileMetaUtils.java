@@ -30,7 +30,6 @@ import org.apache.paimon.fs.Path;
 import org.apache.paimon.io.CompactIncrement;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.io.DataIncrement;
-import org.apache.paimon.manifest.FileSource;
 import org.apache.paimon.statistics.SimpleColStatsCollector;
 import org.apache.paimon.stats.SimpleStats;
 import org.apache.paimon.stats.SimpleStatsConverter;
@@ -165,8 +164,7 @@ public class FileMetaUtils {
                 stats,
                 0,
                 0,
-                ((FileStoreTable) table).schema().id(),
-                FileSource.APPEND);
+                ((FileStoreTable) table).schema().id());
     }
 
     public static BinaryRow writePartitionValue(

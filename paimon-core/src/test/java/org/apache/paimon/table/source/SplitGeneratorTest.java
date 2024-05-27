@@ -20,7 +20,6 @@ package org.apache.paimon.table.source;
 
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.io.DataFileMeta;
-import org.apache.paimon.manifest.FileSource;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.utils.Pair;
 
@@ -57,8 +56,7 @@ public class SplitGeneratorTest {
                 0,
                 0,
                 0L,
-                null,
-                FileSource.APPEND);
+                null);
     }
 
     @Test

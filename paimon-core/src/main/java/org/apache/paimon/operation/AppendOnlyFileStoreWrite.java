@@ -33,7 +33,6 @@ import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.io.DataFilePathFactory;
 import org.apache.paimon.io.RowDataRollingFileWriter;
-import org.apache.paimon.manifest.FileSource;
 import org.apache.paimon.options.MemorySize;
 import org.apache.paimon.reader.RecordReaderIterator;
 import org.apache.paimon.statistics.SimpleColStatsCollector;
@@ -178,8 +177,7 @@ public class AppendOnlyFileStoreWrite extends MemoryFileStoreWrite<InternalRow> 
                             new LongCounter(toCompact.get(0).minSequenceNumber()),
                             fileCompression,
                             statsCollectors,
-                            fileIndexOptions,
-                            FileSource.COMPACT);
+                            fileIndexOptions);
             try {
                 rewriter.write(bucketReader(partition, bucket).read(toCompact));
             } finally {
