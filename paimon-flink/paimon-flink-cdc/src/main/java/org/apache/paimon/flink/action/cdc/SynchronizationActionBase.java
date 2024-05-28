@@ -39,6 +39,8 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
 
+import javax.annotation.Nullable;
+
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
@@ -67,6 +69,7 @@ public abstract class SynchronizationActionBase extends ActionBase {
     protected Map<String, String> tableConfig = new HashMap<>();
     protected TypeMapping typeMapping = TypeMapping.defaultMapping();
     protected CdcMetadataConverter[] metadataConverters = new CdcMetadataConverter[] {};
+    @Nullable protected String rowKindFieldName;
 
     public SynchronizationActionBase(
             String warehouse,
@@ -98,6 +101,11 @@ public abstract class SynchronizationActionBase extends ActionBase {
                 metadataColumns.stream()
                         .map(this.syncJobHandler::provideMetadataConverter)
                         .toArray(CdcMetadataConverter[]::new);
+        return this;
+    }
+
+    public SynchronizationActionBase withRowKindFieldName(@Nullable String rowKindFieldName) {
+        this.rowKindFieldName = rowKindFieldName;
         return this;
     }
 

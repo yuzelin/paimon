@@ -25,11 +25,14 @@ import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.DataTypes;
 
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.Configuration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import javax.annotation.Nullable;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -192,6 +195,7 @@ public class CdcActionCommonUtils {
             Map<String, String> tableConfig,
             Schema sourceSchema,
             CdcMetadataConverter[] metadataConverters,
+            @Nullable String rowKindFieldName,
             boolean caseSensitive,
             boolean requirePrimaryKeys) {
         Schema.Builder builder = Schema.newBuilder();
@@ -229,6 +233,10 @@ public class CdcActionCommonUtils {
                             caseSensitive,
                             columnDuplicateErrMsg);
             builder.column(metadataColumnName, metadataConverter.dataType());
+        }
+
+        if (rowKindFieldName != null) {
+            builder.column(rowKindFieldName, DataTypes.STRING());
         }
 
         // primary keys
