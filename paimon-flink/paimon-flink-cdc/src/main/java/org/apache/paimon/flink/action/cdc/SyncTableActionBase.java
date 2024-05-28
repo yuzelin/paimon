@@ -107,6 +107,7 @@ public abstract class SyncTableActionBase extends SynchronizationActionBase {
                 tableConfig,
                 retrievedSchema,
                 metadataConverters,
+                rowKindFieldName,
                 caseSensitive,
                 true);
     }
@@ -157,7 +158,7 @@ public abstract class SyncTableActionBase extends SynchronizationActionBase {
     @Override
     protected FlatMapFunction<CdcSourceRecord, RichCdcMultiplexRecord> recordParse() {
         return syncJobHandler.provideRecordParser(
-                caseSensitive, computedColumns, typeMapping, metadataConverters);
+                caseSensitive, computedColumns, typeMapping, metadataConverters, rowKindFieldName);
     }
 
     @Override

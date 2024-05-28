@@ -152,6 +152,7 @@ public class MySqlSyncDatabaseAction extends SyncDatabaseActionBase {
                             tableConfig,
                             tableInfo.schema(),
                             metadataConverters,
+                            rowKindFieldName,
                             caseSensitive,
                             true);
             try {
