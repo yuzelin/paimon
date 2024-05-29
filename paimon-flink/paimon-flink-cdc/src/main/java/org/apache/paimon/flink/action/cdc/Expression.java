@@ -666,6 +666,16 @@ public interface Expression extends Serializable {
                 return null;
             }
 
+            if (bPrecision == -1) {
+                try {
+                    String ymd = columnB.substring(0, 10);
+                    ExpressionUtils.toLocalDateTime(ymd, null);
+                    return ymd;
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+
             return ExpressionUtils.fromUnixTime(columnB, bPrecision);
         }
     }
@@ -721,6 +731,16 @@ public interface Expression extends Serializable {
 
             if (columnB == null) {
                 return null;
+            }
+
+            if (bPrecision == -1) {
+                try {
+                    String ymd = columnB.substring(0, 10);
+                    ExpressionUtils.toLocalDateTime(ymd, null);
+                    return ymd;
+                } catch (Exception e) {
+                    return null;
+                }
             }
 
             return ExpressionUtils.fromUnixTime(columnB, bPrecision);

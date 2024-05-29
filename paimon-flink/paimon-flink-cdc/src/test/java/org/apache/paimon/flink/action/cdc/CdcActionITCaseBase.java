@@ -148,6 +148,7 @@ public class CdcActionITCaseBase extends ActionITCaseBase {
                             rowType);
             List<String> sortedActual = new ArrayList<>(result);
             Collections.sort(sortedActual);
+            System.out.println(sortedActual);
             if (sortedExpected.equals(sortedActual)) {
                 break;
             }
@@ -342,8 +343,8 @@ public class CdcActionITCaseBase extends ActionITCaseBase {
             args.addAll(listToMultiArgs("--metadata-column", metadataColumns));
 
             // TODO test
-            args.add("--rowkind_field");
-            args.add("cdc_rowkind");
+            //            args.add("--rowkind_field");
+            //            args.add("cdc_rowkind");
 
             return createAction(clazz, args);
         }

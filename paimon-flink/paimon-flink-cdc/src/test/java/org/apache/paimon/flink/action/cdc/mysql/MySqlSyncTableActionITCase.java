@@ -1453,4 +1453,46 @@ public class MySqlSyncTableActionITCase extends MySqlActionITCaseBase {
                 rowType,
                 Collections.singletonList("k"));
     }
+
+    @Test
+    public void testXiaoPengCCDt1() throws Exception {
+        Map<String, String> mySqlConfig = getBasicMySqlConfig();
+        mySqlConfig.put("database-name", "test_xiaopeng_cc_dt");
+        mySqlConfig.put("table-name", "t");
+
+        MySqlSyncTableAction action =
+                syncTableActionBuilder(mySqlConfig)
+                        .withPartitionKeys()
+                        .withPrimaryKeys("k")
+                        .withComputedColumnArgs(
+                                "_gen=gen_partition_stmt_dt(time1, time2, -1, 2024-04-29)")
+                        .build();
+        runActionWithDefaultEnv(action);
+
+        try (Statement statement = getStatement()) {
+            statement.execute("USE test_xiaopeng_cc_dt");
+            statement.executeUpdate(
+                    "INSERT INTO t VALUES (1, '2024-04-29', '2020-01-01/whatever')"); // 2020-01-01
+            statement.executeUpdate("INSERT INTO t VALUES (2, null, 'xx')"); // NULL
+        }
+
+        FileStoreTable table = getFileStoreTable();
+        RowType rowType =
+                RowType.of(
+                        new DataType[] {
+                            DataTypes.INT().notNull(),
+                            DataTypes.VARCHAR(30),
+                            DataTypes.VARCHAR(30),
+                            DataTypes.STRING()
+                        },
+                        new String[] {"k", "time1", "time2", "_gen"});
+
+        waitForResult(
+                Arrays.asList(
+                        "+I[1, 2024-04-29, 2020-01-01/whatever, 2020-01-01]",
+                        "+I[2, NULL, xx, NULL]"),
+                table,
+                rowType,
+                Collections.singletonList("k"));
+    }
 }

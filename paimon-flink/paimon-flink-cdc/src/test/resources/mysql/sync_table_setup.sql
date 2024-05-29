@@ -438,5 +438,5 @@ USE test_xiaopeng_cc_dt;
 CREATE TABLE t (
     k INT PRIMARY KEY,
     time1 VARCHAR(30),
-    time2 BIGINT
+    time2 VARCHAR(30)
 );
