@@ -335,9 +335,7 @@ public interface FileIO extends Serializable {
      */
     static FileIO get(Path path, CatalogContext config) throws IOException {
         URI uri = path.toUri();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Getting FileIO by scheme {}.", uri.getScheme());
-        }
+        LOG.info("Getting FileIO by scheme {}.", uri.getScheme());
 
         if (uri.getScheme() == null) {
             return new LocalFileIO();
@@ -366,8 +364,8 @@ public interface FileIO extends Serializable {
         FileIOLoader preferIOLoader = config.preferIO();
         try {
             loader = checkAccess(preferIOLoader, path, config);
-            if (loader != null && LOG.isDebugEnabled()) {
-                LOG.debug(
+            if (loader != null) {
+                LOG.info(
                         "Found preferIOLoader {} with scheme {}.",
                         loader.getClass().getName(),
                         loader.getScheme());
@@ -379,8 +377,8 @@ public interface FileIO extends Serializable {
         if (loader == null) {
             Map<String, FileIOLoader> loaders = discoverLoaders();
             loader = loaders.get(uri.getScheme());
-            if (!loaders.isEmpty() && LOG.isDebugEnabled()) {
-                LOG.debug(
+            if (!loaders.isEmpty()) {
+                LOG.info(
                         "Discovered FileIOLoaders: {}.",
                         loaders.entrySet().stream()
                                 .map(
@@ -423,11 +421,11 @@ public interface FileIO extends Serializable {
                                                 + "%s",
                                         String.join("\n", missOptions)));
                 ioExceptionList.add(exception);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(
-                            "Got {} but miss options. Will try to get fallback IO and Hadoop IO respectively.",
-                            loader.getClass().getName());
-                }
+                LOG.info(
+                        "Got {} but miss options {}. Will try to get fallback IO and Hadoop IO respectively.",
+                        loader.getClass().getName(),
+                        String.join(",", missOptions));
+
                 loader = null;
             }
         }
@@ -435,8 +433,8 @@ public interface FileIO extends Serializable {
         if (loader == null) {
             try {
                 loader = checkAccess(fallbackIO, path, config);
-                if (loader != null && LOG.isDebugEnabled()) {
-                    LOG.debug("Got fallback FileIOLoader: {}.", loader.getClass().getName());
+                if (loader != null) {
+                    LOG.info("Got fallback FileIOLoader: {}.", loader.getClass().getName());
                 }
             } catch (IOException ioException) {
                 ioExceptionList.add(ioException);
@@ -447,8 +445,8 @@ public interface FileIO extends Serializable {
         if (loader == null) {
             try {
                 loader = checkAccess(new HadoopFileIOLoader(), path, config);
-                if (loader != null && LOG.isDebugEnabled()) {
-                    LOG.debug("Got hadoop FileIOLoader: {}.", loader.getClass().getName());
+                if (loader != null) {
+                    LOG.info("Got hadoop FileIOLoader: {}.", loader.getClass().getName());
                 }
             } catch (IOException ioException) {
                 ioExceptionList.add(ioException);
