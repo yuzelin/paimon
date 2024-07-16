@@ -105,7 +105,7 @@ public abstract class AbstractFlinkTableFactory
                             isStreamingMode,
                             context.getObjectIdentifier()));
         } else {
-            Table table = buildPaimonTable(context);
+            Table table = buildPaimonTable(context, null);
             if (table instanceof FileStoreTable) {
                 storeTableLineage(
                         ((FileStoreTable) table).catalogEnvironment().lineageMetaFactory(),
@@ -134,7 +134,7 @@ public abstract class AbstractFlinkTableFactory
 
     @Override
     public DynamicTableSink createDynamicTableSink(Context context) {
-        Table table = buildPaimonTable(context);
+        Table table = buildPaimonTable(context, null);
         if (table instanceof FileStoreTable) {
             storeTableLineage(
                     ((FileStoreTable) table).catalogEnvironment().lineageMetaFactory(),
@@ -235,7 +235,8 @@ public abstract class AbstractFlinkTableFactory
                 Options.fromMap(context.getCatalogTable().getOptions()), new FlinkFileIOLoader());
     }
 
-    static Table buildPaimonTable(DynamicTableFactory.Context context) {
+    static Table buildPaimonTable(
+            DynamicTableFactory.Context context, @Nullable Options catalogOptions) {
         CatalogTable origin = context.getCatalogTable().getOrigin();
         Table table;
 
@@ -256,9 +257,15 @@ public abstract class AbstractFlinkTableFactory
             FileStoreTable fileStoreTable = (FileStoreTable) ((DataCatalogTable) origin).table();
             table = fileStoreTable.copyWithoutTimeTravel(newOptions);
         } else {
-            table =
-                    FileStoreTableFactory.create(createCatalogContext(context))
-                            .copyWithoutTimeTravel(newOptions);
+            if (catalogOptions == null) {
+                throw new RuntimeException("Debugging ctas bug, catalogOptions are expected.");
+            }
+            LOG.info(
+                    "--CTAS DEBUG: enriching context with catalog options {}",
+                    catalogOptions.toMap());
+            CatalogContext catalogContext = createCatalogContext(context);
+            catalogOptions.toMap().forEach((k, v) -> catalogContext.options().set(k, v));
+            table = FileStoreTableFactory.create(catalogContext).copyWithoutTimeTravel(newOptions);
         }
 
         Schema schema = FlinkCatalog.fromCatalogTable(context.getCatalogTable());
