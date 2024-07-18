@@ -22,7 +22,7 @@ import org.apache.paimon.spark.PaimonScan
 
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeMap, CreateNamedStruct, Expression, ExprId, GetStructField, LeafExpression, Literal, NamedExpression, PredicateHelper, ScalarSubquery, Unevaluable}
 import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
-import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, CTERelationDef, Filter, Join, LogicalPlan, Project, Subquery, WithCTE}
+import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.trees.TreePattern.{SCALAR_SUBQUERY, SCALAR_SUBQUERY_REFERENCE, TreePattern}
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2ScanRelation
@@ -101,13 +101,15 @@ trait MergePaimonScalarSubqueriesBase extends Rule[LogicalPlan] with PredicateHe
     }
   }
 
+  def pullUpAggFilter(plan: LogicalPlan): LogicalPlan = plan
+
   // First traversal builds up the cache and inserts `ScalarSubqueryReference`s to the plan.
   private def insertReferences(plan: LogicalPlan, cache: ArrayBuffer[Header]): LogicalPlan = {
     plan.transformUpWithSubqueries {
       case n =>
         n.transformExpressionsUpWithPruning(_.containsAnyPattern(SCALAR_SUBQUERY)) {
           case s: ScalarSubquery if !s.isCorrelated && s.deterministic =>
-            val (subqueryIndex, headerIndex) = cacheSubquery(s.plan, cache)
+            val (subqueryIndex, headerIndex) = cacheSubquery(pullUpAggFilter(s.plan), cache)
             ScalarSubqueryReference(subqueryIndex, headerIndex, s.dataType, s.exprId)
         }
     }

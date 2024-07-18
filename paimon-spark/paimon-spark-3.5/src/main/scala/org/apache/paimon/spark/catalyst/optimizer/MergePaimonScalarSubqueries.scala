@@ -20,8 +20,10 @@ package org.apache.paimon.spark.catalyst.optimizer
 
 import org.apache.paimon.spark.PaimonScan
 
-import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeMap, AttributeReference, ExprId, ScalarSubquery, SortOrder}
-import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.sql.catalyst.expressions.{And, Attribute, AttributeMap, AttributeReference, ExprId, NamedExpression, ScalarSubquery, SortOrder}
+import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
+import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, Filter, LogicalPlan, Project}
+import org.apache.spark.sql.catalyst.trees.TreePattern.AGGREGATE_EXPRESSION
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2ScanRelation
 
 object MergePaimonScalarSubqueries extends MergePaimonScalarSubqueriesBase {
@@ -88,5 +90,66 @@ object MergePaimonScalarSubqueries extends MergePaimonScalarSubqueriesBase {
 
   override protected def createScalarSubquery(plan: LogicalPlan, exprId: ExprId): ScalarSubquery = {
     ScalarSubquery(plan, exprId = exprId)
+  }
+
+  override def pullUpAggFilter(plan: LogicalPlan): LogicalPlan = {
+    if (conf.getConfString("spark.sql.mergeScalaSubquery.pullupAggFilter", "false") == "false") {
+      return plan
+    }
+
+    def removeFilterInV2ScanRelation(plan: LogicalPlan): LogicalPlan = {
+      plan match {
+        case relation: DataSourceV2ScanRelation =>
+          relation.copy(scan = relation.scan match {
+            case scan: PaimonScan =>
+              scan.copy(pushedDataFilters = Seq(), pushedPartitionFilters = Seq())
+            case otherScan => otherScan
+          })
+        case _ => plan
+      }
+    }
+
+    plan match {
+      case agg @ Aggregate(
+            groupingExpressions,
+            aggregateExpressions,
+            Project(projectList, Filter(condition, child)))
+          if groupingExpressions.isEmpty && agg.containsPattern(AGGREGATE_EXPRESSION) =>
+        val newProjectList = projectList ++ condition.references
+        val newAggExprs = aggregateExpressions.map(
+          expr => {
+            expr
+              .transformUp {
+                case e: AggregateExpression =>
+                  val newFilter = if (e.filter.isDefined) {
+                    And(e.filter.get, condition)
+                  } else condition
+                  e.copy(filter = Some(newFilter))
+              }
+              .asInstanceOf[NamedExpression]
+          })
+        Aggregate(
+          groupingExpressions,
+          newAggExprs,
+          Project(newProjectList, removeFilterInV2ScanRelation(child)))
+
+      case agg @ Aggregate(groupingExpressions, aggregateExpressions, Filter(condition, child))
+          if groupingExpressions.isEmpty && agg.containsPattern(AGGREGATE_EXPRESSION) =>
+        val newAggExprs = aggregateExpressions.map(
+          expr => {
+            expr
+              .transformUp {
+                case e: AggregateExpression =>
+                  val newFilter = if (e.filter.isDefined) {
+                    And(e.filter.get, condition)
+                  } else condition
+                  e.copy(filter = Some(newFilter))
+              }
+              .asInstanceOf[NamedExpression]
+          })
+        Aggregate(groupingExpressions, newAggExprs, removeFilterInV2ScanRelation(child))
+
+      case _ => plan
+    }
   }
 }
