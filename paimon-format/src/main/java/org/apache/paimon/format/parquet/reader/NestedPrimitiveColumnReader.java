@@ -203,8 +203,10 @@ public class NestedPrimitiveColumnReader implements ColumnReader<WritableColumnV
 
                 if (!lastValue.shouldSkip && !needFilterSkip) {
                     valueList.add(lastValue.value);
+                    valueIndex++;
+                } else if (readRowField) {
+                    valueIndex++;
                 }
-                valueIndex++;
             } while (readValue() && (repetitionLevel != 0));
 
             if (pageRowId == readState.rowId) {
