@@ -285,11 +285,13 @@ public class NestedPrimitiveColumnReader implements ColumnReader<WritableColumnV
             } else {
                 if (readMapKey) {
                     lastValue.skip();
+                } else if (readRowField && maxDefLevel <= 3) {
+                    lastValue.setValue(null);
                 } else {
                     if (definitionLevel == maxDefLevel - 1) {
                         // null value inner set
                         lastValue.setValue(null);
-                    } else if (definitionLevel >= maxDefLevel - 3 && readRowField) {
+                    } else if (definitionLevel >= maxDefLevel - 2 && readRowField) {
                         lastValue.setValue(null);
                     } else {
                         // current set is empty or null
