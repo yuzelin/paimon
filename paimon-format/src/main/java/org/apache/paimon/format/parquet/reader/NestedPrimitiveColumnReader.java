@@ -209,7 +209,8 @@ public class NestedPrimitiveColumnReader implements ColumnReader<WritableColumnV
                     valueList.add(lastValue.value);
                     valueIndex++;
                 } else if (readRowField) {
-                    valueIndex++;
+                    // valueIndex++;
+                    // ignore ?
                 }
                 readState.valuesToReadInPage = readState.valuesToReadInPage - 1;
             } while (readValue() && (repetitionLevel != 0));
@@ -288,7 +289,7 @@ public class NestedPrimitiveColumnReader implements ColumnReader<WritableColumnV
                     if (definitionLevel == maxDefLevel - 1) {
                         // null value inner set
                         lastValue.setValue(null);
-                    } else if (definitionLevel == maxDefLevel - 2 && readRowField) {
+                    } else if (definitionLevel >= maxDefLevel - 3 && readRowField) {
                         lastValue.setValue(null);
                     } else {
                         // current set is empty or null

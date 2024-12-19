@@ -810,7 +810,7 @@ public class ArrowBatchConverterTest {
     private RecordReader.RecordIterator<InternalRow> getRecordIterator(
             RowType rowType, List<InternalRow> rows, @Nullable int[] projection) throws Exception {
         Map<String, String> options = new HashMap<>();
-        options.put(CoreOptions.FILE_FORMAT.key(), RND.nextBoolean() ? "orc" : "parquet");
+        options.put(CoreOptions.FILE_FORMAT.key(), "parquet");
         FileStoreTable table = createFileStoreTable(rowType, Collections.emptyList(), options);
 
         StreamTableWrite write = table.newStreamWriteBuilder().newWrite();

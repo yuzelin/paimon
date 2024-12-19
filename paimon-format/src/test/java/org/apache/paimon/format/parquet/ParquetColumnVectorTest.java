@@ -33,8 +33,13 @@ import org.apache.paimon.data.columnar.IntColumnVector;
 import org.apache.paimon.data.columnar.MapColumnVector;
 import org.apache.paimon.data.columnar.RowColumnVector;
 import org.apache.paimon.data.columnar.VectorizedColumnBatch;
+import org.apache.paimon.format.FileFormatFactory;
 import org.apache.paimon.format.FormatReaderContext;
+import org.apache.paimon.format.FormatReaderFactory;
 import org.apache.paimon.format.FormatWriter;
+import org.apache.paimon.format.FormatWriterFactory;
+import org.apache.paimon.format.orc.OrcFileFormat;
+import org.apache.paimon.format.orc.OrcFileFormatFactory;
 import org.apache.paimon.format.parquet.writer.RowDataParquetBuilder;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.fs.local.LocalFileIO;
@@ -53,6 +58,7 @@ import javax.annotation.Nullable;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -69,6 +75,109 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /** Validate the {@link ColumnVector}s read by Parquet format. */
 public class ParquetColumnVectorTest {
+
+    @Test
+    public void debug() throws IOException {
+        RowType rowType =
+                RowType.builder()
+                        .field(
+                                "row",
+                                RowType.builder()
+                                        .field("f0", DataTypes.ARRAY(RowType.of(DataTypes.INT())))
+                                        .field("f1", RowType.of(DataTypes.INT()))
+                                        .build())
+                        .build();
+
+        InternalRow row0 = GenericRow.of((Object) null);
+        InternalRow row1 = GenericRow.of(GenericRow.of(null, GenericRow.of(1)));
+        InternalRow row2 =
+                GenericRow.of(
+                        GenericRow.of(
+                                new GenericArray(
+                                        new GenericRow[] {
+                                            GenericRow.of((Object) null), GenericRow.of(22)
+                                        }),
+                                GenericRow.of((Object) null)));
+        InternalRow row3 =
+                GenericRow.of(GenericRow.of(new GenericArray(new GenericRow[] {null}), null));
+
+        VectorizedRecordIterator iterator =
+                createVectorizedRecordIterator(rowType, Arrays.asList(row0, row1, row2, row3));
+
+        // validate column vector
+        VectorizedColumnBatch batch = iterator.batch();
+        RowColumnVector row = (RowColumnVector) batch.columns[0];
+
+        assertThat(row.isNullAt(0)).isTrue();
+        assertThat(row.isNullAt(1)).isFalse();
+        assertThat(row.isNullAt(2)).isFalse();
+        assertThat(row.isNullAt(3)).isFalse();
+
+        ArrayColumnVector f0 = (ArrayColumnVector) row.getBatch().columns[0];
+        assertThat(f0.isNullAt(0)).isTrue();
+        assertThat(f0.isNullAt(1)).isTrue();
+        assertThat(f0.isNullAt(2)).isFalse();
+        assertThat(f0.isNullAt(3)).isFalse();
+
+        RowColumnVector arrayRow = (RowColumnVector) f0.getColumnVector();
+        //        assertThat(arrayRow.isNullAt(0)).isFalse();
+        //        assertThat(arrayRow.isNullAt(1)).isFalse();
+        //        assertThat(arrayRow.isNullAt(2)).isTrue();
+
+        IntColumnVector arrayRowInt = (IntColumnVector) arrayRow.getBatch().columns[0];
+        assertThat(arrayRowInt.isNullAt(0)).isTrue();
+        assertThat(arrayRowInt.isNullAt(1)).isFalse();
+        assertThat(arrayRowInt.isNullAt(2)).isTrue();
+
+        assertThat(arrayRowInt.getInt(1)).isEqualTo(22);
+
+        RowColumnVector f1 = (RowColumnVector) row.getBatch().columns[1];
+        //        assertThat(f1.isNullAt(0)).isTrue();
+        //        assertThat(f1.isNullAt(1)).isFalse();
+        //        assertThat(f1.isNullAt(2)).isFalse();
+        //        assertThat(f1.isNullAt(3)).isTrue();
+
+        IntColumnVector rowInt = (IntColumnVector) f1.getBatch().columns[0];
+        assertThat(rowInt.isNullAt(0)).isTrue();
+        assertThat(rowInt.isNullAt(1)).isFalse();
+        assertThat(rowInt.isNullAt(2)).isTrue();
+        assertThat(rowInt.isNullAt(3)).isTrue();
+
+        assertThat(rowInt.getInt(1)).isEqualTo(1);
+
+        // validate per row
+        InternalRow internalRow0 = iterator.next();
+        assertThat(internalRow0.isNullAt(0)).isTrue();
+
+        InternalRow internalRow1 = iterator.next();
+        assertThat(internalRow1.isNullAt(0)).isFalse();
+        InternalRow internalRow1InternalRow = internalRow1.getRow(0, 2);
+        assertThat(internalRow1InternalRow.isNullAt(0)).isTrue();
+        InternalRow internalRow1InternalRowF1 = internalRow1InternalRow.getRow(1, 1);
+        assertThat(internalRow1InternalRowF1.getInt(0)).isEqualTo(1);
+
+        InternalRow internalRow2 = iterator.next();
+        assertThat(internalRow2.isNullAt(0)).isFalse();
+        InternalRow internalRow2InternalRow = internalRow2.getRow(0, 2);
+        InternalArray internalRow2InternalRowF0 = internalRow2InternalRow.getArray(0);
+        assertThat(internalRow2InternalRowF0.size()).isEqualTo(2);
+        InternalRow i0 = internalRow2InternalRowF0.getRow(0, 1);
+        assertThat(i0.isNullAt(0)).isTrue();
+        InternalRow i1 = internalRow2InternalRowF0.getRow(1, 1);
+        assertThat(i1.getInt(0)).isEqualTo(22);
+        InternalRow internalRow2InternalRowF1 = internalRow2InternalRow.getRow(1, 1);
+        assertThat(internalRow2InternalRowF1.isNullAt(0)).isTrue();
+
+        InternalRow internalRow3 = iterator.next();
+        assertThat(internalRow3.isNullAt(0)).isFalse();
+        InternalRow internalRow3InternalRow = internalRow3.getRow(0, 2);
+        InternalArray internalRow3InternalRowF0 = internalRow3InternalRow.getArray(0);
+        assertThat(internalRow3InternalRowF0.size()).isEqualTo(1);
+        assertThat(internalRow3InternalRowF0.isNullAt(0)).isTrue();
+        assertThat(internalRow3InternalRow.isNullAt(1)).isTrue();
+
+        assertThat(iterator.next()).isNull();
+    }
 
     private @TempDir java.nio.file.Path tempDir;
 
@@ -609,6 +718,32 @@ public class ParquetColumnVectorTest {
 
         ParquetReaderFactory readerFactory =
                 new ParquetReaderFactory(new Options(), rowType, 1024, FilterCompat.NOOP);
+
+        RecordReader<InternalRow> reader =
+                readerFactory.createReader(
+                        new FormatReaderContext(fileIO, path, fileIO.getFileSize(path)));
+
+        RecordReader.RecordIterator<InternalRow> iterator = reader.readBatch();
+        return (VectorizedRecordIterator) iterator;
+    }
+
+    private VectorizedRecordIterator createVectorizedRecordIterator1(
+            RowType rowType, List<InternalRow> rows) throws IOException {
+        Path path = new Path(tempDir.toString(), UUID.randomUUID().toString());
+        LocalFileIO fileIO = LocalFileIO.create();
+
+        OrcFileFormat format =
+                new OrcFileFormatFactory()
+                        .create(new FileFormatFactory.FormatContext(new Options(), 1024, 1024));
+
+        FormatWriterFactory writerFactory = format.createWriterFactory(rowType);
+        FormatWriter writer = writerFactory.create(fileIO.newOutputStream(path, false), "zstd");
+        for (InternalRow row : rows) {
+            writer.addElement(row);
+        }
+        writer.close();
+
+        FormatReaderFactory readerFactory = format.createReaderFactory(rowType, null);
 
         RecordReader<InternalRow> reader =
                 readerFactory.createReader(
