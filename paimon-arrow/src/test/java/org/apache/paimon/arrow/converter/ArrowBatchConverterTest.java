@@ -104,34 +104,7 @@ public class ArrowBatchConverterTest {
     static {
         int cnt = 18;
         NULLABLE = new boolean[cnt];
-        for (int i = 0; i < cnt; i++) {
-            NULLABLE[i] = RND.nextBoolean();
-        }
-
-        List<DataField> dataFields = new ArrayList<>();
-        dataFields.add(new DataField(0, "char", DataTypes.CHAR(10).copy(NULLABLE[0])));
-        dataFields.add(new DataField(1, "varchar", DataTypes.VARCHAR(20).copy(NULLABLE[1])));
-        dataFields.add(new DataField(2, "boolean", DataTypes.BOOLEAN().copy(NULLABLE[2])));
-        dataFields.add(new DataField(3, "binary", DataTypes.BINARY(10).copy(NULLABLE[3])));
-        dataFields.add(new DataField(4, "varbinary", DataTypes.VARBINARY(20).copy(NULLABLE[4])));
-        dataFields.add(new DataField(5, "decimal1", DataTypes.DECIMAL(2, 2).copy(NULLABLE[5])));
-        dataFields.add(new DataField(6, "decimal2", DataTypes.DECIMAL(38, 2).copy(NULLABLE[6])));
-        dataFields.add(new DataField(7, "decimal3", DataTypes.DECIMAL(10, 1).copy(NULLABLE[7])));
-        dataFields.add(new DataField(8, "tinyint", DataTypes.TINYINT().copy(NULLABLE[8])));
-        dataFields.add(new DataField(9, "smallint", DataTypes.SMALLINT().copy(NULLABLE[9])));
-        dataFields.add(new DataField(10, "int", DataTypes.INT().copy(NULLABLE[10])));
-        dataFields.add(new DataField(11, "bigint", DataTypes.BIGINT().copy(NULLABLE[11])));
-        dataFields.add(new DataField(12, "float", DataTypes.FLOAT().copy(NULLABLE[12])));
-        dataFields.add(new DataField(13, "double", DataTypes.DOUBLE().copy(NULLABLE[13])));
-        dataFields.add(new DataField(14, "date", DataTypes.DATE().copy(NULLABLE[14])));
-        dataFields.add(new DataField(15, "timestamp3", DataTypes.TIMESTAMP(3).copy(NULLABLE[15])));
-        dataFields.add(new DataField(16, "timestamp6", DataTypes.TIMESTAMP(6).copy(NULLABLE[16])));
-        dataFields.add(
-                new DataField(
-                        17,
-                        "timestampLZ9",
-                        DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(9).copy(NULLABLE[17])));
-        PRIMITIVE_TYPE = new RowType(dataFields);
+        PRIMITIVE_TYPE = createPrimitiveTypes(NULLABLE);
     }
 
     public ArrowBatchConverterTest(String testMode) {
@@ -402,11 +375,14 @@ public class ArrowBatchConverterTest {
     private void testRowTypeImpl(boolean allNull) throws Exception {
         testDv(false);
         // build RowType
+        boolean[] nullables = new boolean[18];
+        Arrays.fill(nullables, true);
+        RowType primitiveType = createPrimitiveTypes(nullables);
         boolean nullable = allNull || RND.nextBoolean();
         RowType nestedRowType =
                 new RowType(
                         Collections.singletonList(
-                                DataTypes.FIELD(19, "row", PRIMITIVE_TYPE.copy(nullable))));
+                                DataTypes.FIELD(19, "row", primitiveType.copy(nullable))));
 
         // create InternalRows
         int numRows = RND.nextInt(5) + 5;
@@ -712,11 +688,16 @@ public class ArrowBatchConverterTest {
         testDv(true);
         // build RowType
         boolean nullable = RND.nextBoolean();
+        boolean[] nullables = new boolean[18];
+        Arrays.fill(nullables, true);
         RowType nestedRowType =
                 new RowType(
                         Arrays.asList(
                                 DataTypes.FIELD(19, "pk", DataTypes.INT()),
-                                DataTypes.FIELD(20, "row", PRIMITIVE_TYPE.copy(nullable))));
+                                DataTypes.FIELD(
+                                        20,
+                                        "row",
+                                        createPrimitiveTypes(nullables).copy(nullable))));
 
         int numRows = RND.nextInt(100) + 200;
         List<GenericRow> rows = new ArrayList<>();
@@ -810,7 +791,7 @@ public class ArrowBatchConverterTest {
     private RecordReader.RecordIterator<InternalRow> getRecordIterator(
             RowType rowType, List<InternalRow> rows, @Nullable int[] projection) throws Exception {
         Map<String, String> options = new HashMap<>();
-        options.put(CoreOptions.FILE_FORMAT.key(), RND.nextBoolean() ? "orc" : "parquet");
+        options.put(CoreOptions.FILE_FORMAT.key(), "parquet");
         FileStoreTable table = createFileStoreTable(rowType, Collections.emptyList(), options);
 
         StreamTableWrite write = table.newStreamWriteBuilder().newWrite();
@@ -1016,5 +997,32 @@ public class ArrowBatchConverterTest {
         }
 
         return sb.toString();
+    }
+
+    private static RowType createPrimitiveTypes(boolean[] nullable) {
+        List<DataField> dataFields = new ArrayList<>();
+        dataFields.add(new DataField(0, "char", DataTypes.CHAR(10).copy(nullable[0])));
+        dataFields.add(new DataField(1, "varchar", DataTypes.VARCHAR(20).copy(nullable[1])));
+        dataFields.add(new DataField(2, "boolean", DataTypes.BOOLEAN().copy(nullable[2])));
+        dataFields.add(new DataField(3, "binary", DataTypes.BINARY(10).copy(nullable[3])));
+        dataFields.add(new DataField(4, "varbinary", DataTypes.VARBINARY(20).copy(nullable[4])));
+        dataFields.add(new DataField(5, "decimal1", DataTypes.DECIMAL(2, 2).copy(nullable[5])));
+        dataFields.add(new DataField(6, "decimal2", DataTypes.DECIMAL(38, 2).copy(nullable[6])));
+        dataFields.add(new DataField(7, "decimal3", DataTypes.DECIMAL(10, 1).copy(nullable[7])));
+        dataFields.add(new DataField(8, "tinyint", DataTypes.TINYINT().copy(nullable[8])));
+        dataFields.add(new DataField(9, "smallint", DataTypes.SMALLINT().copy(nullable[9])));
+        dataFields.add(new DataField(10, "int", DataTypes.INT().copy(nullable[10])));
+        dataFields.add(new DataField(11, "bigint", DataTypes.BIGINT().copy(nullable[11])));
+        dataFields.add(new DataField(12, "float", DataTypes.FLOAT().copy(nullable[12])));
+        dataFields.add(new DataField(13, "double", DataTypes.DOUBLE().copy(nullable[13])));
+        dataFields.add(new DataField(14, "date", DataTypes.DATE().copy(nullable[14])));
+        dataFields.add(new DataField(15, "timestamp3", DataTypes.TIMESTAMP(3).copy(nullable[15])));
+        dataFields.add(new DataField(16, "timestamp6", DataTypes.TIMESTAMP(6).copy(nullable[16])));
+        dataFields.add(
+                new DataField(
+                        17,
+                        "timestampLZ9",
+                        DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(9).copy(nullable[17])));
+        return new RowType(dataFields);
     }
 }

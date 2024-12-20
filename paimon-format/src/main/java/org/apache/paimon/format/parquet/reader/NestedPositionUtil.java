@@ -99,7 +99,7 @@ public class NestedPositionUtil {
             } else {
                 // else when definitionLevels[i] < collectionDefinitionLevel - 1, it means the
                 // collection is not defined, no need to increase offset.
-                if (readRowField) {
+                if (readRowField && collectionDefinitionLevel <= 3) {
                     nullCollectionFlags.add(true);
                     nullValuesCount++;
                     emptyCollectionFlags.add(false);

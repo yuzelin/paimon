@@ -33,6 +33,7 @@ import org.apache.paimon.format.parquet.position.LevelDelegation;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.TimestampType;
+import org.apache.paimon.utils.BooleanArrayList;
 import org.apache.paimon.utils.IntArrayList;
 
 import org.apache.parquet.bytes.ByteBufferInputStream;
@@ -113,6 +114,8 @@ public class NestedPrimitiveColumnReader implements ColumnReader<WritableColumnV
     private boolean cutLevel = false;
 
     private final LastValueContainer lastValue = new LastValueContainer();
+
+    private final BooleanArrayList outerRowIsNull = new BooleanArrayList(1024);
 
     public NestedPrimitiveColumnReader(
             ColumnDescriptor descriptor,
@@ -208,8 +211,6 @@ public class NestedPrimitiveColumnReader implements ColumnReader<WritableColumnV
                 if (!lastValue.shouldSkip && !needFilterSkip) {
                     valueList.add(lastValue.value);
                     valueIndex++;
-                } else if (readRowField) {
-                    valueIndex++;
                 }
                 readState.valuesToReadInPage = readState.valuesToReadInPage - 1;
             } while (readValue() && (repetitionLevel != 0));
@@ -281,6 +282,7 @@ public class NestedPrimitiveColumnReader implements ColumnReader<WritableColumnV
                 } else {
                     lastValue.setValue(readPrimitiveTypedRow(dataType));
                 }
+                outerRowIsNull.add(false);
             } else {
                 if (readMapKey) {
                     lastValue.skip();
@@ -288,8 +290,17 @@ public class NestedPrimitiveColumnReader implements ColumnReader<WritableColumnV
                     if (definitionLevel == maxDefLevel - 1) {
                         // null value inner set
                         lastValue.setValue(null);
+                        // for example, outer ROW<ROW<f0 INT>>, data: <<1>>, <<null>>
+                        // the first inner row value is <1>, so outer row.isNullAt(0) == false
+                        // the second inner row value is <null>, so inner row.isNullAt(0) == true,
+                        // but outer row.isNullAt(1) == false
+                        outerRowIsNull.add(false);
                     } else if (definitionLevel == maxDefLevel - 2 && readRowField) {
                         lastValue.setValue(null);
+                        outerRowIsNull.add(true);
+                    } else if (readRowField && maxDefLevel <= 3) {
+                        lastValue.setValue(null);
+                        outerRowIsNull.add(true);
                     } else {
                         // current set is empty or null
                         lastValue.skip();
@@ -301,6 +312,12 @@ public class NestedPrimitiveColumnReader implements ColumnReader<WritableColumnV
             eof = true;
             return false;
         }
+    }
+
+    public boolean[] outerRowIsNull() {
+        boolean[] result = outerRowIsNull.toArray();
+        outerRowIsNull.clear();
+        return result;
     }
 
     private void readAndSaveRepetitionAndDefinitionLevels() {
