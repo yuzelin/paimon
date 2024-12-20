@@ -120,9 +120,9 @@ public class ParquetColumnVectorTest {
         assertThat(f0.isNullAt(3)).isFalse();
 
         RowColumnVector arrayRow = (RowColumnVector) f0.getColumnVector();
-        //        assertThat(arrayRow.isNullAt(0)).isFalse();
-        //        assertThat(arrayRow.isNullAt(1)).isFalse();
-        //        assertThat(arrayRow.isNullAt(2)).isTrue();
+        assertThat(arrayRow.isNullAt(0)).isFalse();
+        assertThat(arrayRow.isNullAt(1)).isFalse();
+        assertThat(arrayRow.isNullAt(2)).isTrue();
 
         IntColumnVector arrayRowInt = (IntColumnVector) arrayRow.getBatch().columns[0];
         assertThat(arrayRowInt.isNullAt(0)).isTrue();
@@ -132,10 +132,10 @@ public class ParquetColumnVectorTest {
         assertThat(arrayRowInt.getInt(1)).isEqualTo(22);
 
         RowColumnVector f1 = (RowColumnVector) row.getBatch().columns[1];
-        //        assertThat(f1.isNullAt(0)).isTrue();
-        //        assertThat(f1.isNullAt(1)).isFalse();
-        //        assertThat(f1.isNullAt(2)).isFalse();
-        //        assertThat(f1.isNullAt(3)).isTrue();
+        assertThat(f1.isNullAt(0)).isTrue();
+        assertThat(f1.isNullAt(1)).isFalse();
+        assertThat(f1.isNullAt(2)).isFalse();
+        assertThat(f1.isNullAt(3)).isTrue();
 
         IntColumnVector rowInt = (IntColumnVector) f1.getBatch().columns[0];
         assertThat(rowInt.isNullAt(0)).isTrue();
@@ -594,7 +594,7 @@ public class ParquetColumnVectorTest {
         List<InternalRow> rows = new ArrayList<>(4);
         List<BinaryString> f0 = new ArrayList<>(3);
         for (int i = 0; i < 3; i++) {
-            f0.add(BinaryString.fromString(randomString()));
+            f0.add(BinaryString.fromString("A"));
         }
 
         GenericRow row00 = GenericRow.of(f0.get(0), new GenericArray(new Object[] {0, null}));

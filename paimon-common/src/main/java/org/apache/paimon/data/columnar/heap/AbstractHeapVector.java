@@ -139,4 +139,8 @@ public abstract class AbstractHeapVector extends AbstractWritableVector
     public int getLen() {
         return this.len;
     }
+
+    public boolean[] getIsNull() {
+        return isNull;
+    }
 }

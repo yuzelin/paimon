@@ -33,6 +33,7 @@ import org.apache.paimon.format.parquet.position.LevelDelegation;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.TimestampType;
+import org.apache.paimon.utils.BooleanArrayList;
 import org.apache.paimon.utils.IntArrayList;
 
 import org.apache.parquet.bytes.ByteBufferInputStream;
@@ -113,6 +114,8 @@ public class NestedPrimitiveColumnReader implements ColumnReader<WritableColumnV
     private boolean cutLevel = false;
 
     private final LastValueContainer lastValue = new LastValueContainer();
+
+    private BooleanArrayList outerRowNulls = new BooleanArrayList(1000);
 
     public NestedPrimitiveColumnReader(
             ColumnDescriptor descriptor,
@@ -282,17 +285,21 @@ public class NestedPrimitiveColumnReader implements ColumnReader<WritableColumnV
                 } else {
                     lastValue.setValue(readPrimitiveTypedRow(dataType));
                 }
+                outerRowNulls.add(false);
             } else {
                 if (readMapKey) {
                     lastValue.skip();
-                } else if (readRowField && maxDefLevel <= 3) {
-                    lastValue.setValue(null);
                 } else {
                     if (definitionLevel == maxDefLevel - 1) {
                         // null value inner set
                         lastValue.setValue(null);
+                        outerRowNulls.add(false);
                     } else if (definitionLevel == maxDefLevel - 2 && readRowField) {
                         lastValue.setValue(null);
+                        outerRowNulls.add(true);
+                    } else if (readRowField && maxDefLevel <= 3) {
+                        lastValue.setValue(null);
+                        outerRowNulls.add(true);
                     } else {
                         // current set is empty or null
                         lastValue.skip();
@@ -304,6 +311,10 @@ public class NestedPrimitiveColumnReader implements ColumnReader<WritableColumnV
             eof = true;
             return false;
         }
+    }
+
+    public boolean[] getOuterRowNull() {
+        return outerRowNulls.toArray();
     }
 
     private void readAndSaveRepetitionAndDefinitionLevels() {
