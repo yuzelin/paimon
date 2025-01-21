@@ -526,38 +526,23 @@ public class PartialUpdateMergeFunction implements MergeFunction<KeyValue> {
             List<String> fieldNames = rowType.getFieldNames();
             List<DataType> fieldTypes = rowType.getFieldTypes();
             Map<Integer, Supplier<FieldAggregator>> fieldAggregators = new HashMap<>();
-            String defaultAggFunc = options.fieldsDefaultFunc();
             for (int i = 0; i < fieldNames.size(); i++) {
                 String fieldName = fieldNames.get(i);
                 DataType fieldType = fieldTypes.get(i);
-                // aggregate by primary keys, so they do not aggregate
-                boolean isPrimaryKey = primaryKeys.contains(fieldName);
-                String strAggFunc = options.fieldAggFunc(fieldName);
-                boolean ignoreRetract = options.fieldAggIgnoreRetract(fieldName);
 
-                if (strAggFunc != null) {
-                    fieldAggregators.put(
-                            i,
-                            () ->
-                                    FieldAggregatorFactory.create(
-                                            fieldType,
-                                            strAggFunc,
-                                            ignoreRetract,
-                                            isPrimaryKey,
-                                            options,
-                                            fieldName));
-                } else if (defaultAggFunc != null && !allSequenceFields.contains(fieldName)) {
+                if (allSequenceFields.contains(fieldName)) {
                     // no agg for sequence fields
+                    continue;
+                }
+
+                String aggFuncName =
+                        FieldAggregatorFactory.getAggFuncName(fieldName, primaryKeys, options);
+                if (aggFuncName != null) {
                     fieldAggregators.put(
                             i,
                             () ->
                                     FieldAggregatorFactory.create(
-                                            fieldType,
-                                            defaultAggFunc,
-                                            ignoreRetract,
-                                            isPrimaryKey,
-                                            options,
-                                            fieldName));
+                                            fieldType, fieldName, aggFuncName, options));
                 }
             }
             return fieldAggregators;
