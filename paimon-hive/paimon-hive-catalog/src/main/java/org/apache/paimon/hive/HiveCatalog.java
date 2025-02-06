@@ -818,6 +818,11 @@ public class HiveCatalog extends AbstractCatalog {
                             getTableLocation(identifier, table),
                             identifier.getBranchNameOrDefault())
                     .orElseThrow(() -> new TableNotExistException(identifier));
+            //     .orElseThrow(
+            // () -> {
+            //     dropTableImpl(identifier);
+            //     return new TableNotExistException(identifier);
+            // });
         }
 
         if (!formatTableDisabled()) {
