@@ -21,6 +21,7 @@ package org.apache.spark.sql
 import org.apache.spark.executor.OutputMetrics
 import org.apache.spark.rdd.InputFileBlockHolder
 import org.apache.spark.sql.catalyst.analysis.Resolver
+import org.apache.spark.sql.catalyst.catalog.CatalogTable
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Expression}
 import org.apache.spark.sql.catalyst.parser.ParserInterface
@@ -170,4 +171,8 @@ object PaimonUtils {
       tableName: String): Throwable = {
     QueryCompilationErrors.invalidPartitionSpecError(specKeys, partitionColumnNames, tableName)
   }
+}
+
+trait PaimonV2TableWithV1Fallback {
+  def v1Table: CatalogTable
 }

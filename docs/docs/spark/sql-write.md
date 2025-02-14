@@ -220,6 +220,42 @@ WHEN NOT MATCHED AND c > 'c9' THEN INSERT (a, b, c) VALUES (a, b * 1.1, c)
 WHEN NOT MATCHED THEN INSERT *
 ```
 
+## Streaming Write
+
+{{< hint info >}}
+
+Paimon Structured Streaming only supports the two `append` and `complete` modes.
+
+{{< /hint >}}
+
+```scala
+// Create a paimon table if not exists.
+spark.sql(s"""
+           |CREATE TABLE T (k INT, v STRING)
+           |TBLPROPERTIES ('primary-key'='k', 'bucket'='3')
+           |""".stripMargin)
+
+// Here we use MemoryStream to fake a streaming source.
+val inputData = MemoryStream[(Int, String)]
+val df = inputData.toDS().toDF("k", "v")
+
+// Streaming Write to paimon table, you can specify either the target table path or the table name.
+val stream = df
+  .writeStream
+  .outputMode("append")
+  .option("checkpointLocation", "/path/to/checkpoint")
+  .format("paimon")
+  .start("/path/to/paimon/sink/table")
+
+val stream = df
+  .writeStream
+  .outputMode("append")
+  .option("checkpointLocation", "/path/to/checkpoint")
+  .format("paimon")
+  .toTable("tableName")
+```
+
+## Schema Evolution
 ### Column Alignment
 
 Assignments are aligned to the target table by **column name**.

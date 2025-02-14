@@ -30,6 +30,9 @@ import org.apache.paimon.spark.write.{PaimonV2WriteBuilder, PaimonWriteBuilder}
 import org.apache.paimon.table.{CatalogTableType, Table, _}
 import org.apache.paimon.table.BucketMode.{BUCKET_UNAWARE, HASH_FIXED, POSTPONE_MODE}
 
+import org.apache.spark.sql.PaimonV2TableWithV1Fallback
+import org.apache.spark.sql.catalyst.TableIdentifier
+import org.apache.spark.sql.catalyst.catalog.{CatalogStorageFormat, CatalogTable}
 import org.apache.spark.sql.connector.catalog._
 import org.apache.spark.sql.connector.read.ScanBuilder
 import org.apache.spark.sql.connector.write.{LogicalWriteInfo, WriteBuilder}
@@ -37,6 +40,7 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
 import java.util.{Collections, EnumSet => JEnumSet, HashMap => JHashMap, Map => JMap, Set => JSet}
 
+import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 
 abstract class PaimonSparkTableBase(val table: Table)
@@ -44,7 +48,8 @@ abstract class PaimonSparkTableBase(val table: Table)
   with SupportsRead
   with SupportsWrite
   with TruncatableTable
-  with SupportsMetadataColumns {
+  with SupportsMetadataColumns
+  with PaimonV2TableWithV1Fallback {
 
   lazy val coreOptions = new CoreOptions(table.options())
 
@@ -173,5 +178,30 @@ abstract class PaimonSparkTableBase(val table: Table)
     val commit = table.newBatchWriteBuilder().newCommit()
     commit.truncateTable()
     true
+  }
+
+  // Only used by streaming write
+  override def v1Table: CatalogTable = {
+    table match {
+      case table: FileStoreTable =>
+        val ident = table.catalogEnvironment().identifier()
+        val props = properties.asScala.toMap
+        CatalogTable(
+          identifier = TableIdentifier(ident.getTableName, Some(ident.getDatabaseName)),
+          tableType = null,
+          storage = CatalogStorageFormat(
+            locationUri = Some(table.location().toUri),
+            None,
+            None,
+            None,
+            compressed = false,
+            properties = props),
+          owner = props.getOrElse(TableCatalog.PROP_OWNER, ""),
+          schema = schema,
+          provider = Some(SparkSource.NAME)
+        )
+      case _ =>
+        throw new UnsupportedOperationException()
+    }
   }
 }
