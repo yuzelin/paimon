@@ -186,7 +186,10 @@ public final class Decimal implements Comparable<Decimal>, Serializable {
     public static @Nullable Decimal fromBigDecimal(BigDecimal bd, int precision, int scale) {
         bd = bd.setScale(scale, RoundingMode.HALF_UP);
         if (bd.precision() > precision) {
-            return null;
+            throw new RuntimeException(
+                    String.format(
+                            "DEBUG: 入参：precision = %s, scale = %s, Flink BigDecimal = %s. 出参：new BigDecimal = %s.",
+                            precision, scale, bd.toPlainString(), bd.toPlainString()));
         }
 
         long longVal = -1;
