@@ -83,7 +83,7 @@ public final class HiveCatalogOptions {
     public static final ConfigOption<String> CLIENT_POOL_CACHE_KEYS =
             ConfigOptions.key("client-pool-cache.keys")
                     .stringType()
-                    .noDefaultValue()
+                    .defaultValue("conf:dlf.catalog.id,conf:uri")
                     .withDescription(
                             Description.builder()
                                     .text(

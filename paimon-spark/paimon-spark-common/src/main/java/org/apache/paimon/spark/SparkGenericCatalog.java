@@ -62,6 +62,7 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -303,7 +304,8 @@ public class SparkGenericCatalog extends SparkBaseCatalog implements CatalogExte
         SparkSession sparkSession = PaimonSparkSession$.MODULE$.active();
         SessionState sessionState = sparkSession.sessionState();
         Configuration hadoopConf = sessionState.newHadoopConf();
-        if (options.containsKey(METASTORE.key())
+        if (name.equals("spark_catalog")
+                && options.containsKey(METASTORE.key())
                 && options.get(METASTORE.key()).equalsIgnoreCase("hive")) {
             String uri = options.get(CatalogOptions.URI.key());
             if (uri != null) {
@@ -321,39 +323,82 @@ public class SparkGenericCatalog extends SparkBaseCatalog implements CatalogExte
         this.sparkCatalog = new SparkCatalog();
 
         CaseInsensitiveStringMap newOptions =
-                autoFillConfigurations(options, sessionState.conf(), hadoopConf);
+                autoFillConfigurations(options, sessionState.conf(), hadoopConf, catalogName);
         sparkCatalog.initialize(name, newOptions);
 
-        if (options.getBoolean(
+        if (newOptions.getBoolean(
                 CREATE_UNDERLYING_SESSION_CATALOG.key(),
                 CREATE_UNDERLYING_SESSION_CATALOG.defaultValue())) {
             this.underlyingSessionCatalogEnabled = true;
             SparkConf sparkConf = new SparkConf();
-            for (Map.Entry<String, String> entry : options.entrySet()) {
+            for (Map.Entry<String, String> entry : newOptions.entrySet()) {
                 sparkConf.set("spark.hadoop." + entry.getKey(), entry.getValue());
                 hadoopConf.set(entry.getKey(), entry.getValue());
             }
             ExternalCatalog externalCatalog =
                     PaimonCatalogUtils.buildExternalCatalog(sparkConf, hadoopConf);
             this.sessionCatalog = new V2SessionCatalog(new SessionCatalog(externalCatalog));
+            setSessionCatalogCatalogName((V2SessionCatalog) sessionCatalog);
+        }
+    }
+
+    private void setSessionCatalogCatalogName(V2SessionCatalog sessionCatalog) {
+        if (!catalogName.equals("spark_catalog")) {
+            Class<?> clazz = sessionCatalog.getClass();
+            try {
+                Method setNameMethod = clazz.getMethod("setName", String.class);
+                setNameMethod.invoke(sessionCatalog, catalogName);
+            } catch (Throwable ignored) {
+            }
         }
     }
 
     private CaseInsensitiveStringMap autoFillConfigurations(
-            CaseInsensitiveStringMap options, SQLConf sqlConf, Configuration hadoopConf) {
+            CaseInsensitiveStringMap options,
+            SQLConf sqlConf,
+            Configuration hadoopConf,
+            String catalogName) {
         Map<String, String> newOptions = new HashMap<>(options.asCaseSensitiveMap());
-        fillAliyunConfigurations(newOptions, hadoopConf);
+        fillAliyunConfigurations(newOptions, hadoopConf, catalogName);
         fillCommonConfigurations(newOptions, sqlConf);
         return new CaseInsensitiveStringMap(newOptions);
     }
 
-    private void fillAliyunConfigurations(Map<String, String> options, Configuration hadoopConf) {
+    private void fillAliyunConfigurations(
+            Map<String, String> options, Configuration hadoopConf, String catalogName) {
         if (!options.containsKey(METASTORE.key())) {
             // In Alibaba Cloud EMR, `hive.metastore.type` has two types: DLF or LOCAL, for DLF, we
             // set `metastore` to dlf, for LOCAL, do nothing.
             String aliyunEMRHiveMetastoreType = hadoopConf.get("hive.metastore.type", null);
             if ("dlf".equalsIgnoreCase(aliyunEMRHiveMetastoreType)) {
                 options.put(METASTORE.key(), "dlf");
+            }
+        }
+        if (!catalogName.equals("spark_catalog")) {
+            if (options.getOrDefault(METASTORE.key(), "").equals("dlf")
+                    && options.containsKey("dlf.catalog.id")
+                    && !options.get("dlf.catalog.id").equals(hadoopConf.get("dlf.catalog.id"))) {
+                options.put(CREATE_UNDERLYING_SESSION_CATALOG.key(), "true");
+                options.put("hive.client.isolation.on", "true");
+                options.put("hive.metastore.type", "dlf");
+                if (!options.containsKey("hive.imetastoreclient.factory.class")) {
+                    options.put(
+                            "hive.imetastoreclient.factory.class",
+                            "com.aliyun.datalake.metastore.hive2.DlfMetaStoreClientFactory");
+                }
+            }
+            if (options.getOrDefault(METASTORE.key(), "").equals("hive")
+                    && options.containsKey("uri")
+                    && !options.get("uri").equals(hadoopConf.get("hive.metastore.uris"))) {
+                options.put(CREATE_UNDERLYING_SESSION_CATALOG.key(), "true");
+                options.put("hive.client.isolation.on", "true");
+                options.put("hive.metastore.type", "local");
+                options.put("hive.metastore.uris", options.get("uri"));
+                if (!options.containsKey("hive.imetastoreclient.factory.class")) {
+                    options.put(
+                            "hive.imetastoreclient.factory.class",
+                            "org.apache.hadoop.hive.ql.metadata.SessionHiveMetaStoreClientFactory");
+                }
             }
         }
     }
