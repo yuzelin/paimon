@@ -230,6 +230,18 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-jindo</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-vfs-hadoop</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- Below are common test dependencies, place them in this parent module to facilitate
              reuse by all downstream test modules. -->
 
