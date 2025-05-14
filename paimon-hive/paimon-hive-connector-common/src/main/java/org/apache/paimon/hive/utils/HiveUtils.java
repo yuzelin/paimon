@@ -42,6 +42,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -53,8 +54,12 @@ import static org.apache.paimon.utils.HadoopUtils.HADOOP_LOAD_DEFAULT_CONFIG;
 public class HiveUtils {
 
     public static FileStoreTable createFileStoreTable(JobConf jobConf) {
+        return createFileStoreTable(jobConf, new Properties());
+    }
+
+    public static FileStoreTable createFileStoreTable(JobConf jobConf, Properties properties) {
         Options options = extractCatalogConfig(jobConf);
-        options.set(CoreOptions.PATH, LocationKeyExtractor.getPaimonLocation(jobConf));
+        options.set(CoreOptions.PATH, LocationKeyExtractor.getPaimonLocation(jobConf, properties));
 
         CatalogContext catalogContext;
         if (options.get(HADOOP_LOAD_DEFAULT_CONFIG)) {

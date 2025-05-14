@@ -80,8 +80,11 @@ public class TezUtil {
     }
 
     public static TaskAttemptID taskAttemptWrapper(JobConf jc) {
-        return new TaskAttemptWrapper(
-                TaskAttemptID.forName(jc.get(TASK_ATTEMPT_ID_KEY)), jc.get(TEZ_VERTEX_ID_HIVE));
+        TaskAttemptID attemptID = TaskAttemptID.forName(jc.get(TASK_ATTEMPT_ID_KEY));
+        if (attemptID == null) {
+            attemptID = new TaskAttemptID();
+        }
+        return new TaskAttemptWrapper(attemptID, jc.get(TEZ_VERTEX_ID_HIVE));
     }
 
     private static JobID getJobIDWithVertexAppended(JobID jobID, String vertexId) {

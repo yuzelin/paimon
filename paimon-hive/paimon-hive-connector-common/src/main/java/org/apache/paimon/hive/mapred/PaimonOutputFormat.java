@@ -62,7 +62,7 @@ public class PaimonOutputFormat
     public RecordWriter<NullWritable, RowDataContainer> getRecordWriter(
             FileSystem fileSystem, JobConf jobConf, String s, Progressable progressable)
             throws IOException {
-        return writer(jobConf);
+        return writer(jobConf, new Properties());
     }
 
     @Override
@@ -77,7 +77,7 @@ public class PaimonOutputFormat
             Properties properties,
             Progressable progressable)
             throws IOException {
-        FileStoreTable table = forWriteOnly(createFileStoreTable(jobConf));
+        FileStoreTable table = forWriteOnly(createFileStoreTable(jobConf, properties));
         PaimonRecordWriter inner = writer(jobConf, table);
 
         GenericRow staticPartitionRow = buildStaticPartitionRow(path, table.schema());
@@ -87,8 +87,8 @@ public class PaimonOutputFormat
                         inner, staticPartitionRow, table.schema().fields().size());
     }
 
-    private static PaimonRecordWriter writer(JobConf jobConf) {
-        return writer(jobConf, forWriteOnly(createFileStoreTable(jobConf)));
+    private static PaimonRecordWriter writer(JobConf jobConf, Properties properties) {
+        return writer(jobConf, forWriteOnly(createFileStoreTable(jobConf, properties)));
     }
 
     private static PaimonRecordWriter writer(JobConf jobConf, FileStoreTable table) {

@@ -62,6 +62,9 @@ public class LocationKeyExtractor {
 
         // read what metastore tells us
         location = properties.getProperty(hive_metastoreConstants.META_TABLE_LOCATION);
+        if (location == null) {
+            location = conf.get(hive_metastoreConstants.META_TABLE_LOCATION);
+        }
         if (location != null) {
             location = tableLocation(location, properties);
             if (conf != null) {
