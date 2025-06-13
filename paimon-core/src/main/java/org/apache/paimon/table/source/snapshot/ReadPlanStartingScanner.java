@@ -18,8 +18,14 @@
 
 package org.apache.paimon.table.source.snapshot;
 
+import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.manifest.PartitionEntry;
+import org.apache.paimon.table.source.DataSplit;
+import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.utils.SnapshotManager;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 
@@ -28,6 +34,8 @@ import java.util.List;
 
 /** An {@link AbstractStartingScanner} to return plan. */
 public abstract class ReadPlanStartingScanner extends AbstractStartingScanner {
+
+    private static final Logger LOG = LoggerFactory.getLogger(ReadPlanStartingScanner.class);
 
     ReadPlanStartingScanner(SnapshotManager snapshotManager) {
         super(snapshotManager);
@@ -42,7 +50,34 @@ public abstract class ReadPlanStartingScanner extends AbstractStartingScanner {
         if (configured == null) {
             return new NoSnapshot();
         }
-        return StartingScanner.fromPlan(configured.read());
+
+        SnapshotReader.Plan plan = configured.read();
+        List<DataSplit> dataSplits = plan.dataSplits();
+        StringBuilder sb = new StringBuilder();
+        for (DataSplit split : dataSplits) {
+            sb.append(String.format("split bucket path = %s\n", split.bucketPath()));
+            sb.append("fileNames:\n");
+            List<DataFileMeta> fileMetas = split.dataFiles();
+            for (DataFileMeta fileMeta : fileMetas) {
+                sb.append(fileMeta.fileName()).append("\n");
+            }
+            if (!split.deletionFiles().isPresent()) {
+                sb.append("no deletion files.\n");
+            } else {
+                sb.append("deletionFiles:\n");
+                List<DeletionFile> deletionFiles = split.deletionFiles().get();
+                for (DeletionFile deletionFile : deletionFiles) {
+                    sb.append(deletionFile.toString()).append("\n");
+                }
+            }
+        }
+
+        LOG.info(
+                "DEBUG MESSAGE.\nsnapshotId={}\nsplits messages:\n{}",
+                plan.snapshotId(),
+                sb.toString());
+
+        return StartingScanner.fromPlan(plan);
     }
 
     @Override
