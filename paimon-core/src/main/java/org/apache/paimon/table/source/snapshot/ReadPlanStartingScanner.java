@@ -67,7 +67,11 @@ public abstract class ReadPlanStartingScanner extends AbstractStartingScanner {
                 sb.append("deletionFiles:\n");
                 List<DeletionFile> deletionFiles = split.deletionFiles().get();
                 for (DeletionFile deletionFile : deletionFiles) {
-                    sb.append(deletionFile.toString()).append("\n");
+                    if (deletionFile == null) {
+                        sb.append("null deletion file.\n");
+                    } else {
+                        sb.append(deletionFile.toString()).append("\n");
+                    }
                 }
             }
         }
