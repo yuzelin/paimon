@@ -57,10 +57,10 @@ case class PaimonCreateTableAsSelectStrategy(spark: SparkSession)
         }
       }
 
-      if (isPartitionedFormatTable) {
-        throw new UnsupportedOperationException(
-          "Using CTAS with partitioned format table is not supported yet.")
-      }
+//          if (isPartitionedFormatTable) {
+//            throw new UnsupportedOperationException(
+//              "Using CTAS with partitioned format table is not supported yet.")
+//          }
 
       CreateTableAsSelectExec(
         catalog.asTableCatalog,

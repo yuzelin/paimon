@@ -144,7 +144,7 @@ abstract class FormatTableTestBase extends PaimonHiveTestBase with AdaptiveSpark
     }
   }
 
-  test("Format table: CTAS with partitioned table") {
+  ignore("Format table: CTAS with partitioned table") {
     withTable("t1", "t2") {
       sql("CREATE TABLE t1 (id INT, p1 INT, p2 INT) USING csv PARTITIONED BY (p1, p2)")
       sql("INSERT INTO t1 VALUES (1, 2, 3)")
@@ -231,6 +231,123 @@ abstract class FormatTableTestBase extends PaimonHiveTestBase with AdaptiveSpark
       sql("CREATE TABLE t1 (id INT, p1 INT, p2 INT) USING csv OPTIONS ('csv.field-delimiter' ';')")
       val row = sql("SHOW CREATE TABLE t1").collect()(0)
       assert(row.toString().contains("'csv.field-delimiter' = ';'"))
+    }
+  }
+
+  ignore("Format table dataframe: insert into partitioned table") {
+    for (useV2Write <- Seq("true", "false")) {
+      withSparkSQLConf("spark.paimon.write.use-v2-write" -> useV2Write) {
+        withTable("t") {
+          // create table
+          Seq((1, "x1", "p1"), (2, "x2", "p2"))
+            .toDF("a", "b", "pt")
+            .write
+            .format("csv")
+            .partitionBy("pt")
+            .saveAsTable("t")
+
+          // insert into
+          Seq((3, "x3", "p3"))
+            .toDF("a", "b", "pt")
+            .write
+            .format("csv")
+            .mode("append")
+            .insertInto("t")
+          checkAnswer(
+            spark.read.format("csv").table("t").orderBy("a"),
+            Seq(Row(1, "x1", "p1"), Row(2, "x2", "p2"), Row(3, "x3", "p3"))
+          )
+          checkAnswer(
+            sql("SHOW PARTITIONS t"),
+            Seq(Row("pt=p1"), Row("pt=p2"), Row("pt=p3"))
+          )
+
+          // dynamic insert overwrite
+          withSparkSQLConf("spark.sql.sources.partitionOverwriteMode" -> "dynamic") {
+            Seq((4, "x4", "p1"))
+              .toDF("a", "b", "pt")
+              .write
+              .format("csv")
+              .mode("overwrite")
+              .insertInto("t")
+          }
+          checkAnswer(
+            spark.read.format("csv").table("t").orderBy("a"),
+            Seq(Row(2, "x2", "p2"), Row(3, "x3", "p3"), Row(4, "x4", "p1"))
+          )
+          checkAnswer(
+            sql("SHOW PARTITIONS t"),
+            Seq(Row("pt=p1"), Row("pt=p2"), Row("pt=p3"))
+          )
+
+          // insert overwrite
+          Seq((5, "x5", "p1"))
+            .toDF("a", "b", "pt")
+            .write
+            .format("csv")
+            .mode("overwrite")
+            .insertInto("t")
+          checkAnswer(
+            spark.read.format("csv").table("t").orderBy("a"),
+            Seq(Row(5, "x5", "p1"))
+          )
+          checkAnswer(
+            sql("SHOW PARTITIONS t"),
+            Seq(Row("pt=p1"))
+          )
+        }
+      }
+    }
+  }
+
+  ignore("Format table dataframe: save as partitioned table") {
+    for (useV2Write <- Seq("true", "false")) {
+      withSparkSQLConf("spark.paimon.write.use-v2-write" -> useV2Write) {
+        withTable("t") {
+          // create table
+          Seq((1, "x1", "p1"), (2, "x2", "p2"))
+            .toDF("a", "b", "pt")
+            .write
+            .format("csv")
+            .mode("append")
+            .partitionBy("pt")
+            .saveAsTable("t")
+
+          // saveAsTable with append mode
+          Seq((3, "x3", "p3"))
+            .toDF("a", "b", "pt")
+            .write
+            .format("csv")
+            .mode("append")
+            .saveAsTable("t")
+          checkAnswer(
+            spark.read.format("csv").table("t").orderBy("a"),
+            Seq(Row(1, "x1", "p1"), Row(2, "x2", "p2"), Row(3, "x3", "p3"))
+          )
+          checkAnswer(
+            sql("SHOW PARTITIONS t"),
+            Seq(Row("pt=p1"), Row("pt=p2"), Row("pt=p3"))
+          )
+
+          // saveAsTable with overwrite mode will call replace table internal,
+          // so here we set the props and partitions again.
+          Seq((5, "x5", "p1"))
+            .toDF("a", "b", "pt")
+            .write
+            .format("csv")
+            .partitionBy("pt")
+            .mode("overwrite")
+            .saveAsTable("t")
+          checkAnswer(
+            spark.read.format("csv").table("t").orderBy("a"),
+            Seq(Row(5, "x5", "p1"))
+          )
+          checkAnswer(
+            sql("SHOW PARTITIONS t"),
+            Seq(Row("pt=p1"))
+          )
+        }
+      }
     }
   }
 

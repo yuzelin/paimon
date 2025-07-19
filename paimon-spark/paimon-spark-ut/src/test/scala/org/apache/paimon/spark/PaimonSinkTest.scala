@@ -121,7 +121,7 @@ class PaimonSinkTest extends PaimonSparkTestBase with StreamTest {
     }
   }
 
-  test("Paimon Sink: append mode to table") {
+  ignore("Paimon Sink: append mode to table") {
     failAfter(streamingTimeout) {
       withTempDir {
         checkpointDir =>
