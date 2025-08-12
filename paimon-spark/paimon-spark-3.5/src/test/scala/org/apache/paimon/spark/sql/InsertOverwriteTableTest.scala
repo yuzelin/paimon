@@ -18,4 +18,40 @@
 
 package org.apache.paimon.spark.sql
 
-class InsertOverwriteTableTest extends InsertOverwriteTableTestBase {}
+import org.apache.spark.SparkConf
+import org.apache.spark.sql.Row
+
+class InsertOverwriteTableTest extends InsertOverwriteTableTestBase {
+
+  override protected def sparkConf: SparkConf = {
+    super.sparkConf
+    // .set("spark.eventLog.enabled", "true")
+    // .set("spark.eventLog.dir", "/Users/zxy/data/spark/history")
+  }
+
+  test("rebalance write single partitions") {
+    withSparkSQLConf("spark.paimon.write.use-v2-write" -> "true") {
+      withTable("t") {
+        sql("""
+              |create table t(a int, p1 int) TBLPROPERTIES ('partition.sink-strategy'='rebalance')
+              |partitioned by (p1)
+              |""".stripMargin)
+        sql("insert into t values (1, 1), (2, 2)")
+        checkAnswer(sql("select * from t"), Seq(Row(1, 1), Row(2, 2)))
+      }
+    }
+  }
+
+  test("rebalance write multiple partitions") {
+    withSparkSQLConf("spark.paimon.write.use-v2-write" -> "true") {
+      withTable("t") {
+        sql("""
+              |create table t (a int, p1 int, p2 int) TBLPROPERTIES ('partition.sink-strategy'='rebalance')
+              |partitioned by (p1, p2)
+              |""".stripMargin)
+        sql("insert into t values (1, 1, 1), (2, 2, 2)")
+        checkAnswer(sql("select * from t"), Seq(Row(1, 1, 1), Row(2, 2, 2)))
+      }
+    }
+  }
+}

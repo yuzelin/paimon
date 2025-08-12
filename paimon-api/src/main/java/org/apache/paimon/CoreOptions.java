@@ -4938,7 +4938,9 @@ public class CoreOptions implements Serializable {
     public enum PartitionSinkStrategy {
         NONE,
         HASH,
-        PARTITION_DYNAMIC
+        PARTITION_DYNAMIC,
+        REBALANCE
+        // TODO : Supports range-partition strategy.
     }
 
     /** Specifies the implementation of format table. */

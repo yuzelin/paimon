@@ -32,6 +32,7 @@ import org.apache.paimon.io.{CompactIncrement, DataIncrement}
 import org.apache.paimon.manifest.FileKind
 import org.apache.paimon.spark.{SparkRow, SparkTypeUtils}
 import org.apache.paimon.spark.catalog.functions.BucketFunction
+import org.apache.paimon.spark.catalyst.analysis.expressions.ExpressionHelper
 import org.apache.paimon.spark.schema.SparkSystemColumns.{BUCKET_COL, ROW_KIND_COL}
 import org.apache.paimon.spark.sort.TableSorter
 import org.apache.paimon.spark.util.OptionUtils.paimonExtensionEnabled
@@ -46,6 +47,7 @@ import org.apache.paimon.utils.SerializationUtils
 import org.apache.spark.{Partitioner, TaskContext}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql._
+import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.functions._
 
 import java.io.IOException
@@ -57,7 +59,8 @@ case class PaimonSparkWriter(
     table: FileStoreTable,
     writeRowTracking: Boolean = false,
     batchId: Option[Long] = None)
-  extends WriteHelper {
+  extends WriteHelper
+  with ExpressionHelper {
 
   private lazy val tableSchema = table.schema
 
@@ -300,6 +303,9 @@ case class PaimonSparkWriter(
           coreOptions.partitionSinkStrategy match {
             case PartitionSinkStrategy.HASH =>
               input = data.repartition(partitionCols(data): _*)
+            case PartitionSinkStrategy.REBALANCE =>
+              val partitionsExp = partitionCols(data).map(toExpression(sparkSession, _))
+              input = data.hint("rebalance", partitionsExp: _*)
             case _ =>
           }
         }

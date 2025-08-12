@@ -18,6 +18,7 @@
 
 package org.apache.paimon.spark.write
 
+import org.apache.paimon.CoreOptions.PartitionSinkStrategy
 import org.apache.paimon.CoreOptions.ChangelogProducer
 import org.apache.paimon.Snapshot
 import org.apache.paimon.options.Options
@@ -61,6 +62,14 @@ class PaimonV2Write(
     val ordering = writeRequirement.ordering
     logInfo(s"Requesting ${ordering.mkString(",")} as write ordering for table ${table.name()}")
     ordering
+  }
+
+  override def distributionStrictlyRequired(): Boolean = {
+    val options = table.coreOptions()
+    options.partitionSinkStrategy match {
+      case PartitionSinkStrategy.REBALANCE => false
+      case _ => true
+    }
   }
 
   override def toBatch: BatchWrite = {
