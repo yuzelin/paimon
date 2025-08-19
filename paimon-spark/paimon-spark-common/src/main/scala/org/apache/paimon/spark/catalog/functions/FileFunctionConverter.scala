@@ -40,9 +40,15 @@ object FileFunctionConverter {
       .map(r => new FunctionDefinition.FunctionFileResource(r.resourceType.resourceType, r.uri))
       .toList
 
+    val language = if (PythonFunctionUtils.isPythonUDF(catalogFunction)) {
+      "PYTHON"
+    } else {
+      "JAVA"
+    }
+
     val functionDefinition: FunctionDefinition = FunctionDefinition.file(
       fileResources.asJava,
-      "JAVA", // Apache Spark only supports JAR persistent function now.
+      language, // Apache Spark only supports JAR persistent function now.
       catalogFunction.className,
       functionIdentifier.funcName)
     val definitions = Map(FUNCTION_DEFINITION_NAME -> functionDefinition).asJava

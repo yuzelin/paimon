@@ -19,7 +19,7 @@
 package org.apache.spark.sql.catalyst.catalog
 
 import org.apache.paimon.function.{Function => PaimonFunction}
-import org.apache.paimon.spark.catalog.functions.FileFunctionConverter
+import org.apache.paimon.spark.catalog.functions.{FileFunctionConverter, PythonFunctionUtils}
 
 import org.apache.spark.sql.{PaimonUtils, SparkSession}
 import org.apache.spark.sql.catalyst.{FunctionIdentifier, SQLConfHelper}
@@ -111,11 +111,20 @@ case class PaimonV1FunctionRegistry(session: SparkSession) extends SQLConfHelper
         loadFunctionResources(catalogFunction.resources)
         // Preserve user-provided identifier (case-sensitivity may differ from catalog).
         val funcMetadata = catalogFunction.copy(identifier = qualifiedIdent)
-        registerFunction(
-          funcMetadata,
-          overrideIfExists = false,
-          registry = registry,
-          functionBuilder = createFunctionBuilder(funcMetadata))
+
+        if (PythonFunctionUtils.isPythonUDF(catalogFunction)) {
+          PythonFunctionUtils.registerPythonFunction(
+            catalogFunction,
+            registry.asInstanceOf[FunctionRegistry])
+        } else {
+          registerFunction(
+            funcMetadata,
+            overrideIfExists = false,
+            registry = registry,
+            functionBuilder = createFunctionBuilder(funcMetadata))
+        }
+
+        // Now, we need to create the Expression.
         registry.lookupFunction(qualifiedIdent, arguments)
       }
     }
