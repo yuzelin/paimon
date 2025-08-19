@@ -23,6 +23,7 @@ import org.apache.paimon.spark.rowops.PaimonCopyOnWriteScan
 import org.apache.paimon.table.FileStoreTable
 
 import org.apache.spark.sql.connector.write.{BatchWrite, DataWriterFactory, PhysicalWriteInfo, WriterCommitMessage}
+import org.apache.spark.sql.connector.write.streaming.{StreamingDataWriterFactory, StreamingWrite}
 import org.apache.spark.sql.types.StructType
 
 /**
@@ -46,16 +47,26 @@ class PaimonBatchWrite(
     copyOnWriteScan,
     operationType)
   with BatchWrite
+  with StreamingWrite
   with Serializable {
 
   override def createBatchWriterFactory(info: PhysicalWriteInfo): DataWriterFactory =
     createPaimonDataWriterFactory(info)
+
+  override def createStreamingWriterFactory(info: PhysicalWriteInfo): StreamingDataWriterFactory =
+    createPaimonStreamingWriterFactory(info)
 
   override def useCommitCoordinator(): Boolean = false
 
   override def commit(messages: Array[WriterCommitMessage]): Unit = commitMessages(messages)
 
   override def abort(messages: Array[WriterCommitMessage]): Unit = abortMessages(messages)
+
+  override def commit(epochId: Long, messages: Array[WriterCommitMessage]): Unit =
+    commitMessages(messages)
+
+  override def abort(epochId: Long, messages: Array[WriterCommitMessage]): Unit =
+    abortMessages(messages)
 }
 
 object PaimonBatchWrite {

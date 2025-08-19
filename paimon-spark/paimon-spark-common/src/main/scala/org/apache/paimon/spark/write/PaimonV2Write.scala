@@ -18,8 +18,8 @@
 
 package org.apache.paimon.spark.write
 
-import org.apache.paimon.CoreOptions.PartitionSinkStrategy
 import org.apache.paimon.CoreOptions.ChangelogProducer
+import org.apache.paimon.CoreOptions.PartitionSinkStrategy
 import org.apache.paimon.Snapshot
 import org.apache.paimon.options.Options
 import org.apache.paimon.spark._
@@ -33,6 +33,7 @@ import org.apache.spark.sql.connector.distributions.Distribution
 import org.apache.spark.sql.connector.expressions.SortOrder
 import org.apache.spark.sql.connector.metric.CustomMetric
 import org.apache.spark.sql.connector.write._
+import org.apache.spark.sql.connector.write.streaming.StreamingWrite
 import org.apache.spark.sql.paimon.shims.SparkShimLoader
 import org.apache.spark.sql.types.StructType
 
@@ -82,6 +83,20 @@ class PaimonV2Write(
       overwritePartitions,
       copyOnWriteScan,
       operationType)
+  }
+
+  override def toStreaming: StreamingWrite = {
+    // Commit the evolved schema at execution (not at planning), then write to the evolved table.
+    val writeSchema = mergeSchema(dataSchema, options)
+    SparkShimLoader.shim
+      .createPaimonBatchWrite(
+        table,
+        writeSchema,
+        dataSchema,
+        overwritePartitions,
+        copyOnWriteScan,
+        operationType)
+      .asInstanceOf[StreamingWrite]
   }
 
   override def supportedCustomMetrics(): Array[CustomMetric] = {

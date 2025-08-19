@@ -112,6 +112,7 @@ abstract class PaimonSparkTableBase(val table: Table)
       capabilities.add(TableCapability.BATCH_WRITE)
       capabilities.add(TableCapability.OVERWRITE_BY_FILTER)
       capabilities.add(TableCapability.OVERWRITE_DYNAMIC)
+      capabilities.add(TableCapability.STREAMING_WRITE)
     } else {
       capabilities.add(TableCapability.ACCEPT_ANY_SCHEMA)
       capabilities.add(TableCapability.V1_BATCH_WRITE)

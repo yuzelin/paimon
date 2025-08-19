@@ -31,6 +31,7 @@ import org.apache.paimon.table.sink.{BatchWriteBuilder, CommitMessage, CommitMes
 
 import org.apache.spark.sql.PaimonSparkSession
 import org.apache.spark.sql.connector.write.{DataWriterFactory, PhysicalWriteInfo, WriterCommitMessage}
+import org.apache.spark.sql.connector.write.streaming.StreamingDataWriterFactory
 import org.apache.spark.sql.execution.SQLExecution
 import org.apache.spark.sql.execution.metric.SQLMetrics
 import org.apache.spark.sql.types.StructType
@@ -109,6 +110,20 @@ abstract class PaimonBatchWriteBase(
       coreOptions,
       catalogContextForBlobDescriptor,
       rtPaimonWriteType)
+  }
+
+  protected def createPaimonStreamingWriterFactory(
+      info: PhysicalWriteInfo): StreamingDataWriterFactory = {
+    (_: Int, _: Long, epochId: Long) =>
+      {
+        PaimonV2DataWriter(
+          batchWriteBuilder,
+          writeSchema,
+          dataSchema,
+          coreOptions,
+          catalogContextForBlobDescriptor,
+          Some(epochId))
+      }
   }
 
   protected def commitMessages(messages: Array[WriterCommitMessage]): Unit = {
