@@ -25,9 +25,11 @@ import org.apache.paimon.options.Options;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.utils.Pair;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.parquet.ParquetReadOptions;
 import org.apache.parquet.column.statistics.Statistics;
 import org.apache.parquet.conf.PlainParquetConfiguration;
+import org.apache.parquet.crypto.DecryptionPropertiesFactory;
 import org.apache.parquet.hadoop.ParquetFileReader;
 import org.apache.parquet.hadoop.metadata.BlockMetaData;
 import org.apache.parquet.hadoop.metadata.ColumnChunkMetaData;
@@ -100,14 +102,27 @@ public class ParquetUtil {
             FileIO fileIO, Path path, long length, Options options) throws IOException {
         return new ParquetFileReader(
                 ParquetInputFile.fromPath(fileIO, path, length),
-                getParquetReadOptionsBuilder(options).build(),
+                getParquetReadOptionsBuilder(options, path).build(),
                 null);
     }
 
-    public static ParquetReadOptions.Builder getParquetReadOptionsBuilder(Options options) {
-        PlainParquetConfiguration parquetConfiguration =
-                new PlainParquetConfiguration(options.toMap());
-        return ParquetReadOptions.builder(parquetConfiguration);
+    public static ParquetReadOptions.Builder getParquetReadOptionsBuilder(
+            Options options, Path path) {
+        Map<String, String> optionsMap = options.toMap();
+        PlainParquetConfiguration parquetConfiguration = new PlainParquetConfiguration(optionsMap);
+        ParquetReadOptions.Builder builder = ParquetReadOptions.builder(parquetConfiguration);
+        if (optionsMap.containsKey("parquet.crypto.factory.class")) {
+            Configuration conf = new Configuration(false);
+            optionsMap.forEach(conf::set);
+            DecryptionPropertiesFactory cryptoFactory =
+                    DecryptionPropertiesFactory.loadFactory(conf);
+            if (cryptoFactory != null) {
+                builder.withDecryption(
+                        cryptoFactory.getFileDecryptionProperties(
+                                conf, new org.apache.hadoop.fs.Path(path.toUri())));
+            }
+        }
+        return builder;
     }
 
     static void assertStatsClass(

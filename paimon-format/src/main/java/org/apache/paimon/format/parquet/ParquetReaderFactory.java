@@ -117,7 +117,7 @@ public class ParquetReaderFactory implements FormatReaderFactory {
     public FileRecordReader<InternalRow> createReader(FormatReaderFactory.Context context)
             throws IOException {
         ParquetReadOptions.Builder builder =
-                ParquetUtil.getParquetReadOptionsBuilder(conf)
+                ParquetUtil.getParquetReadOptionsBuilder(conf, context.filePath())
                         .withRecordFilter(filter)
                         .withRange(0, context.fileSize());
 

@@ -71,7 +71,10 @@ object PaimonTableAsSelectHelper {
 
   def splitTableAndWriteOptions(
       options: Map[String, String]): (Map[String, String], Map[String, String]) = {
-    options.partition { case (key, _) => tableOptionKeys.contains(key) }
+    val formatType = CoreOptions.fromMap(options.asJava).formatType()
+    options.partition {
+      case (key, _) => tableOptionKeys.contains(key) || key.startsWith(formatType)
+    }
   }
 
   /** Whether the current call originates from V1 DataFrameWriter.saveAsTable(). */
