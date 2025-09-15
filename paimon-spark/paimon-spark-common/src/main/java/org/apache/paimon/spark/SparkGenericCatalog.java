@@ -169,10 +169,22 @@ public class SparkGenericCatalog extends SparkBaseCatalog implements CatalogExte
 
     @Override
     public Table loadTable(Identifier ident) throws NoSuchTableException {
-        try {
-            return sparkCatalog.loadTable(ident);
-        } catch (NoSuchTableException e) {
-            return throwsOldIfExceptionHappens(() -> loadFallbackTable(ident), e);
+        SQLConf conf = PaimonSparkSession$.MODULE$.active().sessionState().conf();
+        boolean loadSessionCatalogTableFirst =
+                Boolean.parseBoolean(
+                        conf.getConfString("spark.sql.loadSessionCatalogTableFirst", "false"));
+        if (loadSessionCatalogTableFirst) {
+            try {
+                return asTableCatalog().loadTable(ident);
+            } catch (NoSuchTableException e) {
+                return throwsOldIfExceptionHappens(() -> sparkCatalog.loadTable(ident), e);
+            }
+        } else {
+            try {
+                return sparkCatalog.loadTable(ident);
+            } catch (NoSuchTableException e) {
+                return throwsOldIfExceptionHappens(() -> loadFallbackTable(ident), e);
+            }
         }
     }
 
