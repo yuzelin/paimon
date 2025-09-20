@@ -104,6 +104,11 @@ public abstract class AbstractCatalog implements Catalog {
     }
 
     @Override
+    public FileIO fileIOFromOptions(Path path) {
+        return fileIO;
+    }
+
+    @Override
     public Map<String, String> options() {
         return context.options().toMap();
     }

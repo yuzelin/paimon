@@ -201,6 +201,7 @@ public class SparkReadITCase extends SparkReadTestBase {
                                         + "PARTITIONED BY (a)\n"
                                         + "LOCATION '%s'\n"
                                         + "TBLPROPERTIES (\n"
+                                        + "  'partition.default-name' = '__HIVE_DEFAULT_PARTITION__',\n"
                                         + "  'path' = '%s')\n"
                                         + "]]",
                                 showCreateString(
@@ -291,6 +292,7 @@ public class SparkReadITCase extends SparkReadTestBase {
                                         + "PARTITIONED BY (dt)\n"
                                         + "LOCATION '%s'\n"
                                         + "TBLPROPERTIES (\n"
+                                        + "  'partition.default-name' = '__HIVE_DEFAULT_PARTITION__',\n"
                                         + "  'path' = '%s',\n"
                                         + "  'primary-key' = 'dt,hh')\n"
                                         + "]]",
@@ -397,6 +399,7 @@ public class SparkReadITCase extends SparkReadTestBase {
                                         + "LOCATION '%s'\n"
                                         + "TBLPROPERTIES (\n"
                                         + "  'k1' = 'v1',\n"
+                                        + "  'partition.default-name' = '__HIVE_DEFAULT_PARTITION__',\n"
                                         + "  'path' = '%s',\n"
                                         + "  'primary-key' = 'a,b')\n]]",
                                 showCreateString(

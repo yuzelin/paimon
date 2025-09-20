@@ -1266,7 +1266,8 @@ public class RESTCatalog implements Catalog {
                 cacheManager);
     }
 
-    private FileIO fileIOFromOptions(Path path) {
+    @Override
+    public FileIO fileIOFromOptions(Path path) {
         // In some cases we only need to get the table object but won't need to access data, using
         // ResolvingFileIO to avoid permission issue.
         FileIO fileIO = new ResolvingFileIO();

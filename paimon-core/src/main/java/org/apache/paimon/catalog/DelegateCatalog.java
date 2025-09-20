@@ -20,6 +20,8 @@ package org.apache.paimon.catalog;
 
 import org.apache.paimon.PagedList;
 import org.apache.paimon.Snapshot;
+import org.apache.paimon.fs.FileIO;
+import org.apache.paimon.fs.Path;
 import org.apache.paimon.function.Function;
 import org.apache.paimon.function.FunctionChange;
 import org.apache.paimon.partition.Partition;
@@ -61,6 +63,11 @@ public abstract class DelegateCatalog implements Catalog {
     @Override
     public Map<String, String> options() {
         return wrapped.options();
+    }
+
+    @Override
+    public FileIO fileIOFromOptions(Path path) {
+        return wrapped.fileIOFromOptions(path);
     }
 
     @Override

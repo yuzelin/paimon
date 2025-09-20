@@ -93,7 +93,7 @@ class PaimonSystemTableTest extends PaimonSparkTestBase {
 
     checkAnswer(
       sql("SELECT partition FROM `T$partitions`"),
-      Seq(Row("p1=2024-10-10/p2=1"), Row("p1=__DEFAULT_PARTITION__/p2=1")))
+      Seq(Row("p1=2024-10-10/p2=1"), Row("p1=__HIVE_DEFAULT_PARTITION__/p2=1")))
 
     checkAnswer(
       sql("SELECT partition, bucket FROM `T$buckets`"),

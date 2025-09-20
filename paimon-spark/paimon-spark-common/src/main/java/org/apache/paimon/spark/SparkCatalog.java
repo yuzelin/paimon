@@ -24,6 +24,8 @@ import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
 import org.apache.paimon.catalog.DelegateCatalog;
 import org.apache.paimon.catalog.PropertyChange;
+import org.apache.paimon.fs.FileIO;
+import org.apache.paimon.fs.Path;
 import org.apache.paimon.function.Function;
 import org.apache.paimon.function.FunctionDefinition;
 import org.apache.paimon.options.Options;
@@ -568,6 +570,8 @@ public class SparkCatalog extends SparkBaseCatalog
         List<String> blobViewFields = CoreOptions.blobViewField(properties);
         Set<String> vectorFields = CoreOptions.fromMap(properties).vectorField();
         String provider = properties.get(TableCatalog.PROP_PROVIDER);
+        List<String> partitionTransforms = convertPartitionTransforms(partitions);
+        addServerlessSparkOptions(provider, normalizedProperties, !partitionTransforms.isEmpty());
         if (!usePaimon(provider)) {
             if (isFormatTable(provider)) {
                 normalizedProperties.put(TYPE.key(), FORMAT_TABLE.toString());
@@ -600,7 +604,7 @@ public class SparkCatalog extends SparkBaseCatalog
                 Schema.newBuilder()
                         .options(normalizedProperties)
                         .primaryKey(primaryKeys)
-                        .partitionKeys(convertPartitionTransforms(partitions))
+                        .partitionKeys(partitionTransforms)
                         .comment(properties.getOrDefault(TableCatalog.PROP_COMMENT, null));
 
         for (StructField field : schema.fields()) {
@@ -642,6 +646,32 @@ public class SparkCatalog extends SparkBaseCatalog
             }
         }
         return schemaBuilder.build();
+    }
+
+    private void addServerlessSparkOptions(
+            String provider, Map<String, String> properties, boolean isPartitionedTable) {
+        // Not add options if table is existing.
+        if (properties.containsKey(TableCatalog.PROP_LOCATION)) {
+            Path path = new Path(properties.get(TableCatalog.PROP_LOCATION));
+            try {
+                FileIO fileIO = paimonCatalog().fileIOFromOptions(path);
+                if (fileIO.exists(path) && fileIO.listDirectories(path).length > 0) {
+                    return;
+                }
+            } catch (Throwable e) {
+                return;
+            }
+        }
+
+        if (usePaimon(provider)) {
+            if (isPartitionedTable) {
+                // For native write.
+                if (!properties.containsKey(CoreOptions.PARTITION_DEFAULT_NAME.key())) {
+                    properties.put(
+                            CoreOptions.PARTITION_DEFAULT_NAME.key(), "__HIVE_DEFAULT_PARTITION__");
+                }
+            }
+        }
     }
 
     private void validateAlterProperty(String alterKey) {

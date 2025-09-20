@@ -23,6 +23,8 @@ import org.apache.paimon.Snapshot;
 import org.apache.paimon.annotation.Public;
 import org.apache.paimon.annotation.VisibleForTesting;
 import org.apache.paimon.consumer.ConsumerInfo;
+import org.apache.paimon.fs.FileIO;
+import org.apache.paimon.fs.Path;
 import org.apache.paimon.function.Function;
 import org.apache.paimon.function.FunctionChange;
 import org.apache.paimon.partition.Partition;
@@ -54,6 +56,8 @@ import java.util.Optional;
  */
 @Public
 public interface Catalog extends AutoCloseable {
+
+    FileIO fileIOFromOptions(Path path);
 
     // ======================= database methods ===============================
 
