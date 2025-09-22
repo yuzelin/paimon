@@ -341,6 +341,10 @@ public class CompactProcedure extends BaseProcedure {
         }
 
         int readParallelism = readParallelism(partitionBuckets, spark());
+        LOG.info(
+                "Starting execute {} compact tasks with {} parallelism.",
+                partitionBuckets.size(),
+                readParallelism);
         BatchWriteBuilder writeBuilder = table.newBatchWriteBuilder();
         JavaRDD<byte[]> commitMessageJavaRDD =
                 javaSparkContext
@@ -440,6 +444,10 @@ public class CompactProcedure extends BaseProcedure {
         }
 
         int readParallelism = readParallelism(serializedTasks, spark());
+        LOG.info(
+                "Starting execute {} compact tasks with {} parallelism.",
+                compactionTasks.size(),
+                readParallelism);
         String commitUser = createCommitUser(table.coreOptions().toConfiguration());
         JavaRDD<byte[]> commitMessageJavaRDD =
                 javaSparkContext
@@ -632,6 +640,11 @@ public class CompactProcedure extends BaseProcedure {
             snapshotReader.withPartitionFilter(partitionPredicate);
         }
         Map<BinaryRow, DataSplit[]> packedSplits = packForSort(snapshotReader.read().dataSplits());
+        if (packedSplits.isEmpty()) {
+            LOG.info("Packed partition split is empty, no compact job to execute.");
+            return;
+        }
+        LOG.info("Found {} packed partition splits to compact.", packedSplits.size());
         TableSorter sorter = TableSorter.getSorter(table, orderType, sortColumns);
         Dataset<Row> datasetForWrite =
                 packedSplits.values().stream()
