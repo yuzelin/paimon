@@ -58,7 +58,7 @@ object OptionUtils extends SQLConfHelper with Logging {
     option.key() match {
       case key if key == SparkConnectorOptions.USE_V2_WRITE.key() =>
         if (sparkVersion >= "3.4") {
-          "false"
+          "true"
         } else {
           option.defaultValue().toString
         }
