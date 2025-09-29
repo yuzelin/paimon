@@ -95,6 +95,12 @@ under the License.
             <version>${project.version}</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-dataset</artifactId>
+            <version>15.0.0</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

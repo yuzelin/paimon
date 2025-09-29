@@ -19,6 +19,7 @@
 package org.apache.paimon.spark;
 
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.TableType;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
@@ -33,7 +34,6 @@ import org.apache.paimon.rest.RESTCatalog;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.spark.catalog.FormatTableCatalog;
-import org.apache.paimon.spark.catalog.SparkBaseCatalog;
 import org.apache.paimon.spark.catalog.SupportV1Function;
 import org.apache.paimon.spark.catalog.SupportView;
 import org.apache.paimon.spark.catalog.functions.FunctionIdentifierConverter;
@@ -113,7 +113,7 @@ import static org.apache.paimon.spark.utils.CatalogUtils.toUpdateColumnDefaultVa
 import static org.apache.paimon.utils.Preconditions.checkArgument;
 
 /** Spark {@link TableCatalog} for paimon. */
-public class SparkCatalog extends SparkBaseCatalog
+public class SparkCatalog extends SupportLance
         implements SupportView,
                 SupportV1Function,
                 FunctionCatalog,
@@ -135,6 +135,7 @@ public class SparkCatalog extends SparkBaseCatalog
         SparkSession sparkSession = PaimonSparkSession$.MODULE$.active();
         checkRequiredConfigurations(sparkSession);
         this.catalogName = name;
+        this.catalogOptions = options;
         CatalogContext catalogContext =
                 CatalogContext.create(
                         Options.fromMap(options.asCaseSensitiveMap()),
@@ -370,13 +371,26 @@ public class SparkCatalog extends SparkBaseCatalog
             Transform[] partitions,
             Map<String, String> properties)
             throws TableAlreadyExistsException, NoSuchNamespaceException {
+        org.apache.paimon.catalog.Identifier paimonIdent = toIdentifier(ident, catalogName);
+        boolean isLanceTable =
+                properties.getOrDefault("type", "").equals(TableType.LANCE_TABLE.toString());
         try {
             catalog.createTable(
-                    toIdentifier(ident, catalogName),
-                    toInitialSchema(schema, partitions, properties),
-                    false);
+                    paimonIdent, toInitialSchema(schema, partitions, properties), false);
+            if (isLanceTable) {
+                createLanceTable(ident, schema, partitions, properties);
+            }
             return loadTable(ident);
         } catch (Catalog.TableAlreadyExistException e) {
+            if (isLanceTable) {
+                LOG.error("Failed to create LanceTable for table {}", ident);
+                try {
+                    catalog.dropTable(paimonIdent, true);
+                } catch (Catalog.TableNotExistException ex) {
+                    LOG.error("Table '{}' does not exist.", paimonIdent, ex);
+                    throw new RuntimeException(ex);
+                }
+            }
             throw new TableAlreadyExistsException(ident);
         } catch (Catalog.DatabaseNotExistException e) {
             throw new NoSuchNamespaceException(ident.namespace());
@@ -388,6 +402,15 @@ public class SparkCatalog extends SparkBaseCatalog
     @Override
     public boolean dropTable(Identifier ident) {
         try {
+            org.apache.paimon.catalog.Identifier paimonIdent = toIdentifier(ident, catalogName);
+            org.apache.paimon.table.Table paimonTable = catalog.getTable(paimonIdent);
+            if (paimonTable instanceof LanceTable) {
+                try {
+                    dropLanceTable((LanceTable) paimonTable);
+                } catch (Catalog.TableNotExistException e) {
+                    LOG.error("Failed to drop LanceTable for table {}: {}", ident, e.getMessage());
+                }
+            }
             catalog.dropTable(toIdentifier(ident, catalogName), false);
             return true;
         } catch (Catalog.TableNotExistException e) {
@@ -821,7 +844,7 @@ public class SparkCatalog extends SparkBaseCatalog
             } else if (table instanceof IcebergTable) {
                 return new SparkIcebergTable(table);
             } else if (table instanceof LanceTable) {
-                return new SparkLanceTable(table);
+                return loadLanceTable((LanceTable) table);
             } else if (table instanceof ObjectTable) {
                 return new SparkObjectTable((ObjectTable) table);
             } else {

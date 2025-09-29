@@ -25,7 +25,7 @@ import org.apache.paimon.fs.local.LocalFileIO
 import org.apache.paimon.spark.catalog.WithPaimonCatalog
 import org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions
 import org.apache.paimon.spark.sql.{SparkVersionSupport, WithTableOptions}
-import org.apache.paimon.table.FileStoreTable
+import org.apache.paimon.table.{FileStoreTable, Table}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.QueryTest
@@ -158,6 +158,10 @@ class PaimonSparkTestBase
 
   def loadTable(dbName: String, tableName: String): FileStoreTable = {
     paimonCatalog.getTable(Identifier.create(dbName, tableName)).asInstanceOf[FileStoreTable]
+  }
+
+  def loadRawTable(dbName: String, tableName: String): Table = {
+    paimonCatalog.getTable(Identifier.create(dbName, tableName))
   }
 
   protected def createRelationV2(tableName: String): DataSourceV2Relation = {

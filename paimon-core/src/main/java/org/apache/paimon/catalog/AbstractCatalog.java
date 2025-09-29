@@ -448,6 +448,7 @@ public abstract class AbstractCatalog implements Catalog {
         switch (Options.fromMap(schema.options()).get(TYPE)) {
             case TABLE:
             case MATERIALIZED_TABLE:
+            case LANCE_TABLE:
                 createTableImpl(identifier, schema);
                 break;
             case FORMAT_TABLE:

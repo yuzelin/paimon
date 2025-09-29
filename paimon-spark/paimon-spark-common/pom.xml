@@ -67,6 +67,19 @@ under the License.
             <artifactId>antlr4-runtime</artifactId>
             <version>${antlr4.version}</version>
         </dependency>
+
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-lance</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.lancedb</groupId>
+            <artifactId>lance-spark-base_${scala.binary.version}</artifactId>
+            <version>0.0.14</version>
+        </dependency>
+
     </dependencies>
 
     <build>

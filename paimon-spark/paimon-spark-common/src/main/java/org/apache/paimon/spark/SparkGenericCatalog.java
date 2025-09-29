@@ -320,6 +320,7 @@ public class SparkGenericCatalog extends SparkBaseCatalog implements CatalogExte
             }
         }
         this.catalogName = name;
+        this.catalogOptions = options;
         this.sparkCatalog = new SparkCatalog();
 
         CaseInsensitiveStringMap newOptions =
