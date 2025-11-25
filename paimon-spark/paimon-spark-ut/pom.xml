@@ -101,6 +101,50 @@ under the License.
             <version>15.0.0</version>
             <scope>test</scope>
         </dependency>
+
+        <!-- for iceberg test -->
+<!--        <dependency>-->
+<!--            <groupId>org.apache.iceberg</groupId>-->
+<!--            <artifactId>iceberg-spark-runtime-3.5_${scala.binary.version}</artifactId>-->
+<!--            <version>1.9.2-emr</version>-->
+<!--            <scope>test</scope>-->
+<!--        </dependency>-->
+<!--        <dependency>-->
+<!--            <groupId>org.apache.iceberg</groupId>-->
+<!--            <artifactId>iceberg-aws-bundle</artifactId>-->
+<!--            <version>1.9.2</version>-->
+<!--            <scope>test</scope>-->
+<!--        </dependency>-->
+<!--        <dependency>-->
+<!--            <groupId>com.aliyun.bennett</groupId>-->
+<!--            <artifactId>bennett-iceberg-plugin</artifactId>-->
+<!--            <version>0.1-SNAPSHOT</version>-->
+<!--            <scope>test</scope>-->
+<!--        </dependency>-->
+<!--        <dependency>-->
+<!--            <groupId>org.apache.paimon</groupId>-->
+<!--            <artifactId>paimon-jindo</artifactId>-->
+<!--            <version>1.4-SNAPSHOT</version>-->
+<!--            <scope>test</scope>-->
+<!--        </dependency>-->
+<!--        <dependency>-->
+<!--            <groupId>com.aliyun.jindodata</groupId>-->
+<!--            <artifactId>jindo-sdk</artifactId>-->
+<!--            <version>6.7.6</version>-->
+<!--            <scope>test</scope>-->
+<!--        </dependency>-->
+<!--        <dependency>-->
+<!--            <groupId>com.aliyun.jindodata</groupId>-->
+<!--            <artifactId>jindo-core</artifactId>-->
+<!--            <version>6.7.6</version>-->
+<!--            <scope>test</scope>-->
+<!--        </dependency>-->
+<!--        <dependency>-->
+<!--            <groupId>com.aliyun.jindodata</groupId>-->
+<!--            <artifactId>jindo-core-macos-11_0-aarch64</artifactId>-->
+<!--            <version>6.7.6</version>-->
+<!--            <scope>test</scope>-->
+<!--        </dependency>-->
     </dependencies>
 
     <build>

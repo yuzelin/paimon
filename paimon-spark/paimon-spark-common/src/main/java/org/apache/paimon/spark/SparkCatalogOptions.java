@@ -43,4 +43,10 @@ public class SparkCatalogOptions {
                     .booleanType()
                     .defaultValue(true)
                     .withDescription("Whether to enable v1 function.");
+
+    public static final ConfigOption<Boolean> ICEBERG_ENABLED =
+            key("iceberg.enabled")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription("Whether to enable iceberg table.");
 }

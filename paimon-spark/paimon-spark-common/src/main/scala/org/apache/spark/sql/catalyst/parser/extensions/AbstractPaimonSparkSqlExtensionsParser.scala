@@ -19,6 +19,7 @@
 package org.apache.spark.sql.catalyst.parser.extensions
 
 import org.apache.paimon.spark.SparkProcedures
+import org.apache.paimon.spark.catalog.IcebergCatalogUtils._
 import org.apache.paimon.spark.catalyst.plans.logical.PaimonHiveDynamicPartitionQuery
 
 import org.antlr.v4.runtime._
@@ -95,7 +96,7 @@ abstract class AbstractPaimonSparkSqlExtensionsParser(val delegate: ParserInterf
     } else {
       var plan =
         try {
-          delegate.parsePlan(sqlText)
+          delegate.parsePlan(transformerIcebergCommandIfNeed(sqlText))
         } catch {
           case _: ParseException if maybeCatalogCreateTableLike(sqlTextAfterSubstitution) =>
             parse(sqlTextAfterSubstitution)(parser => astBuilder.visit(parser.singleStatement()))

@@ -34,6 +34,7 @@ import org.apache.paimon.rest.RESTCatalog;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.spark.catalog.FormatTableCatalog;
+import org.apache.paimon.spark.catalog.SupportIceberg;
 import org.apache.paimon.spark.catalog.SupportV1Function;
 import org.apache.paimon.spark.catalog.SupportView;
 import org.apache.paimon.spark.catalog.functions.FunctionIdentifierConverter;
@@ -66,6 +67,7 @@ import org.apache.spark.sql.connector.catalog.Identifier;
 import org.apache.spark.sql.connector.catalog.NamespaceChange;
 import org.apache.spark.sql.connector.catalog.StagedTable;
 import org.apache.spark.sql.connector.catalog.SupportsNamespaces;
+import org.apache.spark.sql.connector.catalog.Table;
 import org.apache.spark.sql.connector.catalog.TableCatalog;
 import org.apache.spark.sql.connector.catalog.TableChange;
 import org.apache.spark.sql.connector.catalog.functions.UnboundFunction;
@@ -113,7 +115,7 @@ import static org.apache.paimon.spark.utils.CatalogUtils.toUpdateColumnDefaultVa
 import static org.apache.paimon.utils.Preconditions.checkArgument;
 
 /** Spark {@link TableCatalog} for paimon. */
-public class SparkCatalog extends SupportLance
+public class SparkCatalog extends SupportIceberg
         implements SupportView,
                 SupportV1Function,
                 FunctionCatalog,
@@ -308,7 +310,12 @@ public class SparkCatalog extends SupportLance
     @Override
     public org.apache.spark.sql.connector.catalog.Table loadTable(Identifier ident)
             throws NoSuchTableException {
-        return loadSparkTable(ident, Collections.emptyMap());
+        Table table = loadSparkTable(ident, Collections.emptyMap());
+        if (isIcebergTable(table)) {
+            return loadIcebergTable(ident);
+        } else {
+            return table;
+        }
     }
 
     /**
@@ -352,6 +359,11 @@ public class SparkCatalog extends SupportLance
     @Override
     public org.apache.spark.sql.connector.catalog.Table alterTable(
             Identifier ident, TableChange... changes) throws NoSuchTableException {
+        Table table = loadSparkTable(ident, Collections.emptyMap());
+        if (isIcebergTable(table)) {
+            return alterIcebergTable(ident, changes);
+        }
+
         List<SchemaChange> schemaChanges =
                 Arrays.stream(changes).map(this::toSchemaChange).collect(Collectors.toList());
         try {
@@ -371,6 +383,10 @@ public class SparkCatalog extends SupportLance
             Transform[] partitions,
             Map<String, String> properties)
             throws TableAlreadyExistsException, NoSuchNamespaceException {
+        if (isIcebergTable(properties)) {
+            return createIcebergTable(ident, schema, partitions, properties);
+        }
+
         org.apache.paimon.catalog.Identifier paimonIdent = toIdentifier(ident, catalogName);
         boolean isLanceTable =
                 properties.getOrDefault("type", "").equals(TableType.LANCE_TABLE.toString());
@@ -412,10 +428,26 @@ public class SparkCatalog extends SupportLance
                 }
             }
             catalog.dropTable(toIdentifier(ident, catalogName), false);
+            if (paimonTable instanceof IcebergTable) {
+                invalidateIcebergTable(ident);
+            }
             return true;
         } catch (Catalog.TableNotExistException e) {
             return false;
         }
+    }
+
+    @Override
+    public boolean purgeTable(Identifier ident) throws UnsupportedOperationException {
+        try {
+            Table table = loadSparkTable(ident, Collections.emptyMap());
+            if (isIcebergTable(table)) {
+                return purgeIcebergTable(ident);
+            }
+        } catch (NoSuchTableException e) {
+            return super.purgeTable(ident);
+        }
+        return super.purgeTable(ident);
     }
 
     @Override

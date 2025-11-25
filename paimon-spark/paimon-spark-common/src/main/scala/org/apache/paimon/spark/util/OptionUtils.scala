@@ -134,6 +134,10 @@ object OptionUtils extends SQLConfHelper with Logging {
     getOptionString(SparkCatalogOptions.V1FUNCTION_ENABLED).toBoolean
   }
 
+  def icebergEnabled(): Boolean = {
+    getOptionString(SparkCatalogOptions.ICEBERG_ENABLED).toBoolean
+  }
+
   def readAllowFullScan(): Boolean = {
     getOptionString(SparkConnectorOptions.READ_ALLOW_FULL_SCAN).toBoolean
   }
