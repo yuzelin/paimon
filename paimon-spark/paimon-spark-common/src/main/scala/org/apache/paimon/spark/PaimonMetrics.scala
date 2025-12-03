@@ -237,3 +237,58 @@ case class PaimonBucketsWrittenMetric() extends PaimonSumMetric {
 case class PaimonBucketsWrittenTaskMetric(value: Long) extends PaimonTaskMetric {
   override def name(): String = PaimonMetrics.BUCKETS_WRITTEN
 }
+
+// legacy metrics
+case class PaimonAvgSplitSizeMetric() extends PaimonCustomMetric {
+  protected def aggregateTaskMetrics0(taskMetrics: Array[Long]): Double = {
+    if (taskMetrics.length > 0) {
+      var sum = 0L
+      for (taskMetric <- taskMetrics) {
+        sum += taskMetric
+      }
+      sum.toDouble / taskMetrics.length
+    } else {
+      0d
+    }
+  }
+  override def name(): String = "avgSplitSize"
+  override def description(): String = "avg size of splits read"
+  override def aggregateTaskMetrics(taskMetrics: Array[Long]): String = {
+    val average = aggregateTaskMetrics0(taskMetrics).round
+    PaimonUtils.bytesToString(average)
+  }
+}
+
+case class PaimonAvgSplitSizeTaskMetric(override val value: Long) extends PaimonTaskMetric {
+  override def name(): String = "avgSplitSize"
+}
+
+case class PaimonSplitSizeMetric() extends PaimonSumMetric {
+  override def name(): String = "splitSize"
+  override def description(): String = "size of splits read"
+  override def aggregateTaskMetrics(taskMetrics: Array[Long]): String = {
+    PaimonUtils.bytesToString(taskMetrics.sum)
+  }
+}
+
+case class PaimonSplitSizeTaskMetric(override val value: Long) extends PaimonTaskMetric {
+  override def name(): String = "splitSize"
+}
+
+case class PaimonAppendedTableFilesMetric() extends PaimonSumMetric {
+  override def name(): String = "appendedTableFiles"
+  override def description(): String = "number of appended table files"
+}
+
+case class PaimonAppendedTableFilesTaskMetric(value: Long) extends PaimonTaskMetric {
+  override def name(): String = "appendedTableFiles"
+}
+
+case class PaimonAppendedRecordsMetric() extends PaimonSumMetric {
+  override def name(): String = "appendedRecords"
+  override def description(): String = "number of appended records"
+}
+
+case class PaimonAppendedRecordsTaskMetric(value: Long) extends PaimonTaskMetric {
+  override def name(): String = "appendedRecords"
+}
