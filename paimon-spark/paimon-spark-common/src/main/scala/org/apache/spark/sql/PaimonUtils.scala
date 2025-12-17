@@ -30,7 +30,7 @@ import org.apache.spark.sql.connector.expressions.FieldReference
 import org.apache.spark.sql.connector.expressions.filter.Predicate
 import org.apache.spark.sql.errors.QueryCompilationErrors
 import org.apache.spark.sql.execution.datasources.DataSourceStrategy
-import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Strategy.translateFilterV2WithMapping
+import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Strategy
 import org.apache.spark.sql.internal.connector.PredicateUtils
 import org.apache.spark.sql.paimon.shims.SparkShimLoader
 import org.apache.spark.sql.sources.Filter
@@ -38,12 +38,26 @@ import org.apache.spark.sql.types.{DataType, StructType}
 import org.apache.spark.sql.util.PartitioningUtils
 import org.apache.spark.util.{Utils => SparkUtils}
 
+import scala.collection.mutable
+
 /**
  * Some classes or methods defined in the spark project are marked as private under
  * [[org.apache.spark.sql]] package, Hence, use this class to adapt then so that we can use them
  * indirectly.
  */
 object PaimonUtils {
+
+  def translateFilterV2WithMapping(
+      predicate: Expression,
+      translatedFilterToExpr: Option[mutable.HashMap[Predicate, Expression]]): Option[Predicate] = {
+    DataSourceV2Strategy.translateFilterV2WithMapping(predicate, translatedFilterToExpr)
+  }
+
+  def rebuildExpressionFromFilter(
+      predicate: Predicate,
+      translatedFilterToExpr: mutable.HashMap[Predicate, Expression]): Expression = {
+    DataSourceV2Strategy.rebuildExpressionFromFilter(predicate, translatedFilterToExpr)
+  }
 
   /**
    * In the streaming write case, An "Queries with streaming sources must be executed with

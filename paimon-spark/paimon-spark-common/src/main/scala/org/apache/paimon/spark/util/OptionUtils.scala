@@ -106,6 +106,10 @@ object OptionUtils extends SQLConfHelper with Logging {
     configuredValue && isVersionSupported
   }
 
+  def pushDownCatalystFiltersEnabled(): Boolean = {
+    conf.getConfString("spark.paimon.read.pushDownCatalystFilters", "true").toBoolean
+  }
+
   def writeMergeSchemaEnabled(): Boolean = {
     getOptionString(SparkConnectorOptions.MERGE_SCHEMA).toBoolean
   }

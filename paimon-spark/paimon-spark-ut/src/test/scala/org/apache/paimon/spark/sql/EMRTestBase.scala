@@ -18,10 +18,13 @@
 
 package org.apache.paimon.spark.sql
 
+import org.apache.paimon.spark.PaimonMetrics._
 import org.apache.paimon.spark.PaimonSparkTestBase
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.connector.metric.CustomTaskMetric
+import org.junit.jupiter.api.Assertions
 
 abstract class EMRTestBase extends PaimonSparkTestBase {
 
@@ -205,6 +208,66 @@ abstract class EMRTestBase extends PaimonSparkTestBase {
               |""".stripMargin),
         Row(20.0, 35.0, 50.0, 40.0, 60.0)
       )
+    }
+  }
+
+  test(s"Test catalyst filter push down") {
+    if (gteqSpark3_4) {
+      withSparkSQLConf("spark.paimon.read.pushDownCatalystFilters" -> "true") {
+        withTable("t") {
+          sql("""
+                |CREATE TABLE t (id int, value int, year STRING, month STRING, day STRING, hour STRING)
+                |using paimon
+                |PARTITIONED BY (year, month, day, hour)
+                |""".stripMargin)
+
+          sql("""
+                |INSERT INTO t values
+                |(1, 100, '2024', '07', '15', '21'),
+                |(3, 300, '2025', '07', '16', '22'),
+                |(4, 400, '2025', '07', '16', '23'),
+                |(5, 440, '2025', '07', '16', '24'),
+                |(6, 500, '2025', '07', '17', '00'),
+                |(7, 600, '2025', '07', '17', '02')
+                |""".stripMargin)
+
+          val q =
+            """
+              |SELECT * FROM t
+              |WHERE CONCAT_WS('-', year, month, day, hour)
+              |BETWEEN '2025-07-16-21' AND '2025-07-17-01'
+              |ORDER BY id
+              |""".stripMargin
+
+          checkAnswer(
+            spark.sql(q),
+            Seq(
+              Row(3, 300, "2025", "07", "16", "22"),
+              Row(4, 400, "2025", "07", "16", "23"),
+              Row(5, 440, "2025", "07", "16", "24"),
+              Row(6, 500, "2025", "07", "17", "00"))
+          )
+
+          def checkMetrics(
+              s: String,
+              scannedSnapshotId: Long,
+              skippedTableFiles: Long,
+              resultedTableFiles: Long): Unit = {
+            val scan = getPaimonScan(s)
+            // call getInputPartitions to trigger scan
+            scan.inputPartitions
+            val metrics = scan.reportDriverMetrics()
+            def metric(metrics: Array[CustomTaskMetric], name: String): Long = {
+              metrics.find(_.name() == name).get.value()
+            }
+            Assertions.assertEquals(scannedSnapshotId, metric(metrics, SCANNED_SNAPSHOT_ID))
+            Assertions.assertEquals(skippedTableFiles, metric(metrics, SKIPPED_TABLE_FILES))
+            Assertions.assertEquals(resultedTableFiles, metric(metrics, RESULTED_TABLE_FILES))
+          }
+
+          checkMetrics(q, 1, 2, 4)
+        }
+      }
     }
   }
 }

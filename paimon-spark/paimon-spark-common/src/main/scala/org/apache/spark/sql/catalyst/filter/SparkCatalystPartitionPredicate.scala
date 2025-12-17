@@ -97,6 +97,12 @@ object SparkCatalystPartitionPredicate {
       f =>
         // Python UDFs might exist because this rule is applied before ``ExtractPythonUDFs``.
         !SubqueryExpression.hasSubquery(f) && !f.exists(_.isInstanceOf[PythonUDF])
+        try {
+          SparkCatalystPartitionPredicate(f, partitionRowType)
+          true
+        } catch {
+          case _: Throwable => false
+        }
     }
   }
 }

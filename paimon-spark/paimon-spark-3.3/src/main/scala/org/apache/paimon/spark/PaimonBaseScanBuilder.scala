@@ -18,21 +18,14 @@
 
 package org.apache.paimon.spark
 
-import org.apache.paimon.CoreOptions
 import org.apache.paimon.partition.PartitionPredicate
 import org.apache.paimon.partition.PartitionPredicate.splitPartitionPredicatesAndDataPredicates
-import org.apache.paimon.predicate.{PartitionPredicateVisitor, Predicate, TopN, VectorSearch}
-import org.apache.paimon.predicate.FullTextSearch
-import org.apache.paimon.spark.util.OptionUtils
-import org.apache.paimon.table.{SpecialFields, Table}
+import org.apache.paimon.predicate.{PartitionPredicateVisitor, Predicate, TopN}
+import org.apache.paimon.table.Table
 import org.apache.paimon.types.RowType
 
-import org.apache.spark.sql.PaimonUtils
-import org.apache.spark.sql.catalyst.expressions.Expression
-import org.apache.spark.sql.catalyst.filter.SparkCatalystPartitionPredicate
 import org.apache.spark.sql.connector.expressions.filter.{Predicate => SparkPredicate}
-import org.apache.spark.sql.connector.read.{SupportsPushDownLimit, SupportsPushDownRequiredColumns}
-import org.apache.spark.sql.internal.connector.SupportsPushDownCatalystFilters
+import org.apache.spark.sql.connector.read.{SupportsPushDownLimit, SupportsPushDownRequiredColumns, SupportsPushDownV2Filters}
 import org.apache.spark.sql.types.StructType
 
 import java.util.{List => JList}
@@ -43,13 +36,12 @@ import scala.collection.mutable
 /** Base Scan builder. */
 abstract class PaimonBaseScanBuilder
   extends SupportsPushDownRequiredColumns
-  with SupportsPushDownCatalystFilters
+  with SupportsPushDownV2Filters
   with SupportsPushDownLimit {
 
   val table: Table
   val partitionKeys: JList[String] = table.partitionKeys()
   val rowType: RowType = table.rowType()
-  val coreOptions: CoreOptions = CoreOptions.fromMap(table.options())
 
   private var pushedSparkPredicates = Array.empty[SparkPredicate]
   protected var hasPostScanPredicates = false
@@ -58,8 +50,6 @@ abstract class PaimonBaseScanBuilder
   protected var pushedDataFilters: Array[Predicate] = Array.empty
   protected var pushedLimit: Option[Int] = None
   protected var pushedTopN: Option[TopN] = None
-  protected var pushedVectorSearch: Option[VectorSearch] = None
-  protected var pushedFullTextSearch: Option[FullTextSearch] = None
 
   protected var requiredSchema: StructType = SparkTypeUtils.fromPaimonRowType(table.rowType())
 
@@ -67,37 +57,15 @@ abstract class PaimonBaseScanBuilder
     this.requiredSchema = requiredSchema
   }
 
-  override def pushFilters(filters: Seq[Expression]): Seq[Expression] = {
+  override def pushPredicates(predicates: Array[SparkPredicate]): Array[SparkPredicate] = {
     val pushable = mutable.ArrayBuffer.empty[SparkPredicate]
     val pushablePartitionDataFilters = mutable.ArrayBuffer.empty[Predicate]
     val pushableDataFilters = mutable.ArrayBuffer.empty[Predicate]
     val postScan = mutable.ArrayBuffer.empty[SparkPredicate]
 
-    val translatedFilterToExpr = mutable.HashMap.empty[SparkPredicate, Expression]
-    val translatedFilters = mutable.ArrayBuffer.empty[SparkPredicate]
-    // Catalyst filter expression that can't be translated to data source filters.
-    val untranslatableExprs = mutable.ArrayBuffer.empty[Expression]
-
-    for (filterExpr <- filters) {
-      val translated =
-        PaimonUtils.translateFilterV2WithMapping(filterExpr, Some(translatedFilterToExpr))
-      if (translated.isEmpty) {
-        untranslatableExprs += filterExpr
-      } else {
-        translatedFilters += translated.get
-      }
-    }
-
-    var newRowType = rowType
-    if (
-      coreOptions.rowTrackingEnabled() && coreOptions
-        .dataEvolutionEnabled() && !rowType.containsField(SpecialFields.ROW_ID.name())
-    ) {
-      newRowType = SpecialFields.rowTypeWithRowTracking(newRowType);
-    }
-    val converter = SparkV2FilterConverter(newRowType)
+    val converter = SparkV2FilterConverter(rowType)
     val partitionPredicateVisitor = new PartitionPredicateVisitor(partitionKeys)
-    translatedFilters.foreach {
+    predicates.foreach {
       predicate =>
         converter.convert(predicate) match {
           case Some(paimonPredicate) =>
@@ -131,22 +99,10 @@ abstract class PaimonBaseScanBuilder
     if (postScan.nonEmpty) {
       this.hasPostScanPredicates = true
     }
-
-    if (!partitionKeys.isEmpty && OptionUtils.pushDownCatalystFiltersEnabled()) {
-      val partitionRowType = rowType.project(partitionKeys)
-      val catalystPartitionPredicates = SparkCatalystPartitionPredicate
-        .extractSupportedPartitionFilters(untranslatableExprs.toSeq, partitionRowType)
-        .map(SparkCatalystPartitionPredicate(_, partitionRowType))
-      pushedPartitionFilters ++= catalystPartitionPredicates
-    }
-
-    val postScanFilters = postScan
-      .map(predicate => PaimonUtils.rebuildExpressionFromFilter(predicate, translatedFilterToExpr))
-    // todo: maybe we can remove supported partition filters in untranslatableExprs
-    (postScanFilters ++ untranslatableExprs).toSeq
+    postScan.toArray
   }
 
-  override def pushedFilters: Array[SparkPredicate] = {
+  override def pushedPredicates: Array[SparkPredicate] = {
     pushedSparkPredicates
   }
 
