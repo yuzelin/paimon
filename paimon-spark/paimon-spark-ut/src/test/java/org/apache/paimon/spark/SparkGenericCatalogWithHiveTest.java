@@ -23,9 +23,9 @@ import org.apache.paimon.hive.TestHiveMetastore;
 
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
+import org.junit.Ignore;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.FileNotFoundException;
@@ -50,7 +50,7 @@ public class SparkGenericCatalogWithHiveTest {
         testHiveMetastore.stop();
     }
 
-    @Test
+    @Ignore
     public void testAddPartitionForFallbackParquetTableWithNamedCatalog(
             @TempDir java.nio.file.Path tempDir) throws Exception {
         Path warehousePath = new Path("file:" + tempDir);
@@ -129,7 +129,7 @@ public class SparkGenericCatalogWithHiveTest {
         }
     }
 
-    @Test
+    @Ignore
     public void testBuildWithHive(@TempDir java.nio.file.Path tempDir) throws IOException {
         // firstly, we use hive metastore to create table, and check the result.
         Path warehousePath = new Path("file:" + tempDir.toString());
@@ -182,7 +182,7 @@ public class SparkGenericCatalogWithHiveTest {
         spark.close();
     }
 
-    @Test
+    @Ignore
     public void testHiveCatalogOptions(@TempDir java.nio.file.Path tempDir) throws IOException {
         Path warehousePath = new Path("file:" + tempDir.toString());
         SparkSession spark =

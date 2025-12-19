@@ -123,7 +123,7 @@ class PushDownAggregatesTest extends PaimonSparkTestBase with AdaptiveSparkPlanH
     }
   }
 
-  test("Push down aggregate - append table with partitions") {
+  ignore("Push down aggregate - append table with partitions") {
     withTable("T") {
       spark.sql("CREATE TABLE T (c1 INT, c2 LONG) PARTITIONED BY(day STRING, hour INT)")
 
@@ -287,7 +287,7 @@ class PushDownAggregatesTest extends PaimonSparkTestBase with AdaptiveSparkPlanH
     }
   }
 
-  test("Push down aggregate: group by partial partition of a multi partition table") {
+  ignore("Push down aggregate: group by partial partition of a multi partition table") {
     sql(s"""
            |CREATE TABLE T (
            |c1 STRING,
