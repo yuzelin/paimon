@@ -1,0 +1,49 @@
+name: run paimon spark4 ut
+
+triggers:
+  merge_request:
+    target-branches: '**'
+    types:
+      - opened
+
+params:
+
+jobs:
+  package:
+    name: 运行 UT
+
+    image: 'crpi-ikefsbzah0txoyw5.cn-hangzhou.personal.cr.aliyuncs.com/emr-ss/spark:20250813-1-amd-jdk17'
+
+    steps:
+      - id: fetch-image
+        container:
+          credentials:
+            username: ${{vars.docker_username}}
+            password: ${{secrets.docker_password}}
+        run: "echo 'fetch image'"
+
+      - id: checkout-paimon
+        uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:soe/emr-paimon.git'
+          ref: ${{git.commitId}}
+          path: 'paimon'
+          username: ${{vars.code_username}}
+          token: ${{secrets.code_token}}
+
+      - id: run-package
+        run: |
+          # common env
+          set -ex
+          export WORKSPACE=$(pwd)
+          
+          echo "start run ut"
+          sh ${WORKSPACE}/paimon/.aoneci/shell/spark4-ut.sh
+          echo "finish run ut"
+
+      - id: upload-test-result
+        uses: test-report-upload
+        inputs:
+          testcase_file: "**/surefire-reports/*.xml"
+          coverage_file: "**/jacoco/**/*.xml"
+

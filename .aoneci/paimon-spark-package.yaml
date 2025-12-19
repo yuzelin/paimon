@@ -1,0 +1,141 @@
+name: run paimon spark package
+
+
+params:
+  PAIMON_ALI_BRANCH:
+    description: 'paimon-ali 使用分支'
+    type: string
+    default: 'emr/esr-master'
+
+  SPARK_VERSION:
+    description: 'spark 版本'
+    type: string
+    options: [3.5,3.4,3.3,4.0,4.1,all]
+    default: '3.5'
+
+  JDK17:
+    description: 'jdk17环境'
+    type: boolean
+    default: false
+
+  PAIMON_ALI_EMR_SPARK:
+    description: '打包 paimon-ali-emr-spark'
+    type: boolean
+    default: true
+
+  PAIMON_ALI_PANGU:
+    description: '打包 paimon-ali-pangu'
+    type: boolean
+    default: false
+
+  PAIMON_ALI_ALIORC:
+    description: '打包 paimon-ali-aliorc'
+    type: boolean
+    default: false
+
+  PAIMON_HIVE:
+    description: '打包 paimon-hive'
+    type: boolean
+    default: false
+
+  FORMAT_PACKAGE:
+    description: '是否对打包结果格式化'
+    type: boolean
+    default: true
+
+  DEPLOY_TO_EMR_RELEASE:
+    description: '是否 deploy paimon 到 emr-release：https://emr-maven.alibaba.net/#browse/browse:emr-release'
+    type: boolean
+    default: false
+
+  UPLOAD_TO_OSS:
+    description: '是否上传打包结果到 OSS'
+    type: boolean
+    default: false
+
+jobs:
+  package:
+    name: 打包 paimon ali spark
+
+    matrix:
+      params:
+        - name: spark_version
+          value: "${{params.SPARK_VERSION == 'all' ? #array('[\"3.4\", \"3.5\", \"4.1\"]') : #array('[\"' + params.SPARK_VERSION + '\"]')}}"
+
+    image: 'crpi-ikefsbzah0txoyw5.cn-hangzhou.personal.cr.aliyuncs.com/emr-ss/spark:20250813-1-amd'
+
+    steps:
+      - id: fetch-image
+        container:
+          credentials:
+            username: ${{vars.docker_username}}
+            password: ${{secrets.docker_password}}
+        run: "echo 'fetch image'"
+
+      - id: checkout-paimon
+        uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:soe/emr-paimon.git'
+          ref: ${{git.commitId}}
+          path: 'paimon'
+          username: ${{vars.code_username}}
+          token: ${{secrets.code_token}}
+
+      - id: checkout-paimon-ali
+        uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:paimon/paimon-ali.git'
+          ref: ${{params.PAIMON_ALI_BRANCH}}
+          path: 'paimon-ali'
+          username: ${{vars.code_username}}
+          token: ${{secrets.code_token}}
+
+      - id: run-package
+        run: |
+          # common env
+          set -ex
+          export WORKSPACE=$(pwd)
+
+          # job args
+          export SPARK_VERSION=${{matrix.spark_version}}
+          export PAIMON_ALI_EMR_SPARK=${{params.PAIMON_ALI_EMR_SPARK}}
+          export PAIMON_ALI_PANGU=${{params.PAIMON_ALI_PANGU}}
+          export PAIMON_ALI_ALIORC=${{params.PAIMON_ALI_ALIORC}}
+          export PAIMON_HIVE=${{params.PAIMON_HIVE}}
+          export FORMAT_PACKAGE=${{params.FORMAT_PACKAGE}}
+          export DEPLOY_TO_EMR_RELEASE=${{params.DEPLOY_TO_EMR_RELEASE}}
+          export JDK17=${{params.JDK17}}
+          export SS_MAVEN_USERNAME=${{vars.ss_maven_username}}
+          export SS_MAVEN_PASSWORD=${{secrets.ss_maven_password}}
+
+          # Auto-switch to JDK17 for Spark 4.x
+          if [[ ${SPARK_VERSION} == 4* ]] || [ "${JDK17}" = "true" ]; then
+            export JDK17=true
+            yum install -y java-17-openjdk-devel 2>/dev/null || true
+            export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+            export PATH=$JAVA_HOME/bin:$PATH
+          fi
+          java -version
+
+          echo "start run build"
+          sh ${WORKSPACE}/paimon/.aoneci/shell/build.sh
+          echo "finish run build"
+
+      - id: upload-artifact
+        uses: upload-artifact
+        inputs:
+          name: artifact-paimon-ali-spark-${{matrix.spark_version}}
+          path: |
+            package/*.jar
+
+      - id: upload-oss
+        if: ${{params.UPLOAD_TO_OSS}}
+        uses: upload-oss
+        inputs:
+          path: |
+            package/*.jar
+          storage-path: jars/paimon/
+          oss-bucket: ss-xinyu
+          oss-endpoint: https://oss-cn-hangzhou.aliyuncs.com
+          access-key-id: ${{secrets.sspark_ak}}
+          access-key-secret: ${{secrets.sspark_sk}}

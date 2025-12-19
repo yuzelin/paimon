@@ -555,6 +555,30 @@ under the License.
                 <rat.skip>true</rat.skip>
             </properties>
         </profile>
+        <profile>
+            <id>deploy-aliyun</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-deploy-plugin</artifactId>
+                        <configuration>
+                            <altDeploymentRepository>${emr.deploy.repo}</altDeploymentRepository>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>deploy-aliyun-packages</id>
+                                <phase>deploy</phase>
+                                <goals><goal>deploy</goal></goals>
+                                <configuration>
+                                    <altDeploymentRepository>serverless-spark::default::https://packages.aliyun.com/69a101262baf901da4b6b003/maven/serverless-spark</altDeploymentRepository>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
     </profiles>
 
     <build>
