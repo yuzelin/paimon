@@ -116,6 +116,7 @@ class SparkSource
       val catalogContext =
         CatalogContext.create(Options.fromMap(options), sessionState.newHadoopConf())
       copyWithSQLConf(FileStoreTableFactory.create(catalogContext), extraOptions = options)
+        .copy(Map("write.use-v2-write" -> "false").asJava)
     }
 
     if (Options.fromMap(options).get(SparkConnectorOptions.READ_CHANGELOG)) {
