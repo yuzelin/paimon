@@ -20,9 +20,15 @@ package org.apache.paimon.spark.sql
 
 import org.apache.paimon.spark.PaimonHiveTestBase
 
+import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 
 abstract class PaimonViewTestBase extends PaimonHiveTestBase {
+
+  override protected def sparkConf: SparkConf = {
+    super.sparkConf
+      .set(s"spark.sql.catalog.$paimonHiveCatalogName.returnViewsWithTables", "true")
+  }
 
   test("Paimon View: create and drop view") {
     Seq(sparkCatalogName, paimonHiveCatalogName).foreach {
@@ -64,7 +70,7 @@ abstract class PaimonViewTestBase extends PaimonHiveTestBase {
     }
   }
 
-  test("Paimon View: show views") {
+  test("Paimon View: show views and tables") {
     Seq(sparkCatalogName, paimonHiveCatalogName).foreach {
       catalogName =>
         {
@@ -78,9 +84,20 @@ abstract class PaimonViewTestBase extends PaimonHiveTestBase {
                 sql("CREATE VIEW va AS SELECT * FROM t")
                 sql("CREATE VIEW vab AS SELECT * FROM t")
                 sql("CREATE VIEW vc AS SELECT * FROM t")
+
+                // show views
                 checkAnswer(
                   sql("SHOW VIEWS"),
                   Seq(
+                    Row("test_db", "va", false),
+                    Row("test_db", "vab", false),
+                    Row("test_db", "vc", false)))
+
+                // show tables
+                checkAnswer(
+                  sql("SHOW TABLES"),
+                  Seq(
+                    Row("test_db", "t", false),
                     Row("test_db", "va", false),
                     Row("test_db", "vab", false),
                     Row("test_db", "vc", false)))

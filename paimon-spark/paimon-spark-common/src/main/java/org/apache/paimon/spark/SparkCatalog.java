@@ -100,6 +100,7 @@ import static org.apache.paimon.CoreOptions.FILE_FORMAT;
 import static org.apache.paimon.CoreOptions.TYPE;
 import static org.apache.paimon.TableType.FORMAT_TABLE;
 import static org.apache.paimon.spark.SparkCatalogOptions.DEFAULT_DATABASE;
+import static org.apache.paimon.spark.SparkCatalogOptions.RETURN_VIEWS_IN_LIST_TABLES;
 import static org.apache.paimon.spark.SparkCatalogOptions.V1FUNCTION_ENABLED;
 import static org.apache.paimon.spark.SparkTypeUtils.CURRENT_DEFAULT_COLUMN_METADATA_KEY;
 import static org.apache.paimon.spark.SparkTypeUtils.toPaimonType;
@@ -130,6 +131,7 @@ public class SparkCatalog extends SupportIceberg
     private Catalog catalog;
     private String defaultDatabase;
     private boolean v1FunctionEnabled;
+    private boolean returnViewsInListTables;
     @Nullable private PaimonV1FunctionRegistry v1FunctionRegistry;
 
     @Override
@@ -151,6 +153,7 @@ public class SparkCatalog extends SupportIceberg
         if (v1FunctionEnabled) {
             this.v1FunctionRegistry = new PaimonV1FunctionRegistry(sparkSession);
         }
+        this.returnViewsInListTables = options.getBoolean(RETURN_VIEWS_IN_LIST_TABLES.key(), false);
         try {
             catalog.getDatabase(defaultDatabase);
         } catch (Catalog.DatabaseNotExistException e) {
@@ -294,7 +297,11 @@ public class SparkCatalog extends SupportIceberg
         checkNamespace(namespace, catalogName);
         try {
             String databaseName = getDatabaseNameFromNamespace(namespace);
-            return catalog.listTables(databaseName).stream()
+            List<String> result = catalog.listTables(databaseName);
+            if (returnViewsInListTables) {
+                result.addAll(catalog.listViews(databaseName));
+            }
+            return result.stream()
                     .map(table -> Identifier.of(namespace, table))
                     .toArray(Identifier[]::new);
         } catch (Catalog.DatabaseNotExistException e) {

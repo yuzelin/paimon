@@ -49,4 +49,9 @@ public class SparkCatalogOptions {
                     .booleanType()
                     .defaultValue(true)
                     .withDescription("Whether to enable iceberg table.");
+    public static final ConfigOption<Boolean> RETURN_VIEWS_IN_LIST_TABLES =
+            key("returnViewsWithTables")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Whether to return both tables and views when `SHOW TABLES`");
 }
