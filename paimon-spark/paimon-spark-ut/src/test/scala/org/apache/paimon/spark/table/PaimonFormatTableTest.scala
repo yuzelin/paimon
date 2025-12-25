@@ -21,12 +21,14 @@ package org.apache.paimon.spark.table
 import org.apache.paimon.catalog.Identifier
 import org.apache.paimon.fs.Path
 import org.apache.paimon.spark.PaimonSparkTestWithRestCatalogBase
+import org.apache.paimon.spark.format.PaimonFormatTable
 import org.apache.paimon.table.FormatTable
 import org.apache.paimon.table.format.FormatDataSplit
 
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.connector.catalog.TableCapability
 import org.apache.spark.sql.connector.catalog.TableCatalog
+import org.apache.spark.sql.execution.PartitionedCSVTable
 
 class PaimonFormatTableTest extends PaimonSparkTestWithRestCatalogBase {
 
@@ -127,7 +129,8 @@ class PaimonFormatTableTest extends PaimonSparkTestWithRestCatalogBase {
 
   test("PaimonFormatTable: set dynamic options") {
     withTable("t") {
-      sql(s"create table t (id INT, v INT, pt STRING) using csv")
+      sql(
+        s"create table t (id INT, v INT, pt STRING) using csv TBLPROPERTIES ('format-table.implementation'='paimon')")
 
       withSparkSQLConf("spark.paimon.write.batch-size" -> "256") {
         val options = getFormatTableScan("SELECT * FROM t").table.options()
@@ -208,6 +211,24 @@ class PaimonFormatTableTest extends PaimonSparkTestWithRestCatalogBase {
         spark.sql(s"SELECT id, age, name FROM $tableName ORDER BY id, age"),
         Row(1, 5, "Jerry") :: Row(2, 7, "Tom") :: Row(3, 5, "Alice") :: Nil
       )
+    }
+  }
+
+  test("Paimon format table: default load impl format table") {
+    withTable("t_format_tbl") {
+      sql(s"""
+             |CREATE TABLE t_format_tbl (v STRING) USING csv location '${tempDBDir.getCanonicalPath}/test_default_tbl'
+             |""".stripMargin)
+
+      def loadTable0 = spark.sessionState.catalogManager.currentCatalog
+        .asInstanceOf[TableCatalog]
+        .loadTable(
+          org.apache.spark.sql.connector.catalog.Identifier.of(Array("test_db"), "t_format_tbl"))
+
+      assert(loadTable0.isInstanceOf[PartitionedCSVTable])
+      withSparkSQLConf("spark.paimon.format-table.implementation" -> "paimon") {
+        assert(loadTable0.isInstanceOf[PaimonFormatTable])
+      }
     }
   }
 

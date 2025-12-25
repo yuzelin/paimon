@@ -52,6 +52,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import static org.apache.paimon.CoreOptions.FORMAT_TABLE_IMPLEMENTATION;
+
 /** Catalog supports format table. */
 public interface FormatTableCatalog {
 
@@ -59,10 +61,26 @@ public interface FormatTableCatalog {
         return provide != null && SparkSource.FORMAT_NAMES().contains(provide.toLowerCase());
     }
 
-    default Table toSparkFormatTable(Identifier ident, FormatTable formatTable) {
-        Map<String, String> optionsMap = formatTable.options();
-        CoreOptions coreOptions = new CoreOptions(optionsMap);
-        if (coreOptions.formatTableImplementationIsPaimon()) {
+    default boolean usingPaimonFormatTable(Map<String, String> options, boolean isDLF25) {
+        CoreOptions coreOptions = new CoreOptions(options);
+        if (options.containsKey(FORMAT_TABLE_IMPLEMENTATION.key())) {
+            return coreOptions.formatTableImplementationIsPaimon();
+        }
+        if (coreOptions.formatTablePartitionOnlyValueInPath()
+                || coreOptions.formatTableCommitSyncPartitionHiveUri() != null) {
+            return true;
+        }
+        if ("true"
+                .equalsIgnoreCase(
+                        options.getOrDefault(
+                                "EXTERNAL", options.getOrDefault("external", "false")))) {
+            return false;
+        }
+        return isDLF25;
+    }
+
+    default Table toSparkFormatTable(Identifier ident, FormatTable formatTable, boolean isDLF25) {
+        if (usingPaimonFormatTable(formatTable.options(), isDLF25)) {
             return new PaimonFormatTable(formatTable);
         } else {
             SparkSession spark = PaimonSparkSession$.MODULE$.active();

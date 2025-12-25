@@ -532,6 +532,9 @@ public class RESTCatalog implements Catalog {
         TableSchema schema = TableSchema.create(response.getSchemaId(), response.getSchema());
         Map<String, String> options = new HashMap<>(schema.options());
         options.put(PATH.key(), response.getPath());
+        if (response.isExternal()) {
+            options.put("external", "true");
+        }
         response.putAuditOptionsTo(options);
         Identifier identifier = Identifier.create(db, response.getName());
         if (identifier.getBranchName() != null) {

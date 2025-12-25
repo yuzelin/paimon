@@ -879,7 +879,10 @@ public class SparkCatalog extends SupportIceberg
                     copyWithSQLConf(
                             catalog.getTable(tblIdent), catalogName, tblIdent, extraOptions);
             if (table instanceof FormatTable) {
-                return toSparkFormatTable(ident, (FormatTable) table);
+                return toSparkFormatTable(
+                        ident,
+                        (FormatTable) table,
+                        DelegateCatalog.rootCatalog(catalog) instanceof RESTCatalog);
             } else if (table instanceof IcebergTable) {
                 return new SparkIcebergTable(table);
             } else if (table instanceof LanceTable) {

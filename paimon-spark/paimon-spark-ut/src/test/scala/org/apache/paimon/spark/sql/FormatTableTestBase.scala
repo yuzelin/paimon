@@ -27,6 +27,7 @@ import org.apache.paimon.table.FormatTable
 import org.apache.paimon.table.source.Split
 import org.apache.paimon.utils.CompressUtils
 
+import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.connector.read.InputPartition
 import org.apache.spark.sql.execution.SparkPlan
@@ -34,6 +35,11 @@ import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 
 abstract class FormatTableTestBase extends PaimonHiveTestBase with AdaptiveSparkPlanHelper {
+
+  override protected def sparkConf: SparkConf = {
+    super.sparkConf
+      .set("spark.paimon.format-table.implementation", "paimon")
+  }
 
   import testImplicits._
 
