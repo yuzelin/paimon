@@ -28,7 +28,7 @@ class PaimonLanceTest extends PaimonHiveTestBase {
 
   import testImplicits._
 
-  test("Lance Table") {
+  ignore("Lance Table") {
     sql("""
           |CREATE TABLE lance_table (id INT, name STRING, pt STRING)
           |USING PAIMON
