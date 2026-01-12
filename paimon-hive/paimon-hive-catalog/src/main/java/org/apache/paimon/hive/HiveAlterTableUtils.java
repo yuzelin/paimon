@@ -50,9 +50,9 @@ public class HiveAlterTableUtils {
             boolean skipUpdateStats,
             boolean cascade)
             throws TException {
+        String b = table.getParameters().get(StatsSetupConst.DO_NOT_UPDATE_STATS);
         boolean skipHiveUpdateStats =
-                Boolean.parseBoolean(table.getParameters().get(StatsSetupConst.DO_NOT_UPDATE_STATS))
-                        || skipUpdateStats;
+                Boolean.parseBoolean(b == null ? "true" : b) || skipUpdateStats;
         EnvironmentContext environmentContext = new EnvironmentContext();
         if (cascade) {
             environmentContext.putToProperties(StatsSetupConst.CASCADE, "true");
