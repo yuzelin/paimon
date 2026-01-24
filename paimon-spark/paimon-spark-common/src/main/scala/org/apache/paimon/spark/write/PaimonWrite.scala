@@ -20,24 +20,36 @@ package org.apache.paimon.spark.write
 
 import org.apache.paimon.options.Options
 import org.apache.paimon.spark.SaveMode
-import org.apache.paimon.spark.commands.WriteIntoPaimonTable
+import org.apache.paimon.spark.commands.{AffectedRowUtils, WriteIntoPaimonTable}
 import org.apache.paimon.table.FileStoreTable
 
 import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.connector.write.V1Write
 import org.apache.spark.sql.sources.InsertableRelation
 
 /** Spark [[V1Write]], it is required to use v1 write for grouping by bucket. */
 class PaimonWrite(val table: FileStoreTable, saveMode: SaveMode, options: Options) extends V1Write {
 
-  override def toInsertableRelation: InsertableRelation = {
-    (data: DataFrame, overwrite: Boolean) =>
-      {
-        WriteIntoPaimonTable(table, saveMode, data, options).run(data.sparkSession)
-      }
-  }
+  override def toInsertableRelation: InsertableRelation =
+    PaimonInsertableRelation(table, saveMode, options)
+
+  def output(): Seq[Attribute] =
+    AffectedRowUtils.output().map(_.toAttribute)
 
   override def toString: String = {
     s"table: ${table.fullName()}, saveMode: $saveMode, options: ${options.toMap}"
+  }
+}
+
+case class PaimonInsertableRelation(table: FileStoreTable, saveMode: SaveMode, options: Options)
+  extends InsertableRelation {
+  var result: Seq[InternalRow] = Seq.empty
+
+  override def insert(data: DataFrame, overwrite: Boolean): Unit = {
+    val rows = WriteIntoPaimonTable(table, saveMode, data, options).run(data.sparkSession)
+    val insertedRowCount = rows.head.getAs[Long](0)
+    result = Seq(InternalRow(insertedRowCount, 0L, 0L, insertedRowCount))
   }
 }

@@ -26,6 +26,7 @@ import org.apache.paimon.spark.catalyst.analysis.ReplacePaimonFunctions
 import org.apache.paimon.spark.catalyst.analysis.expressions.ExpressionHelper
 import org.apache.paimon.spark.write.PaimonWriteOptions
 import org.apache.paimon.table.FileStoreTable
+import org.apache.paimon.table.sink.CommitMessageImpl
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{DataFrame, PaimonUtils, Row, SparkSession}
@@ -74,7 +75,13 @@ case class WriteIntoPaimonTable(
     val commitMessages = writer.write(replacedData)
     writer.commit(commitMessages, operation)
 
-    Seq.empty
+    val insertedRowCount = commitMessages.map {
+      case c: CommitMessageImpl =>
+        c.newFilesIncrement().newFiles().asScala.map(a => a.rowCount()).sum
+      case _ => 0L
+    }.sum
+
+    Seq(Row(insertedRowCount, 0L, 0L, insertedRowCount))
   }
 
   private def parseSaveMode(): (Boolean, Map[String, String]) = {

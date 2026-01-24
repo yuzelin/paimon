@@ -25,6 +25,7 @@ import org.apache.paimon.table.FileStoreTable
 import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.spark.sql.PaimonUtils.{createDataset, createNewDataFrame}
 import org.apache.spark.sql.catalyst.analysis.NamedRelation
+import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.catalyst.plans.logical.{Command, LogicalPlan, V2WriteCommand}
 import org.apache.spark.sql.execution.command.RunnableCommand
 
@@ -46,6 +47,8 @@ case class PaimonDynamicPartitionOverwriteCommand(
     isByName: Boolean)
   extends RunnableCommand
   with V2WriteCommand {
+
+  override def output: Seq[Attribute] = AffectedRowUtils.output()
 
   override def child: LogicalPlan = query
 
