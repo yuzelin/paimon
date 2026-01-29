@@ -45,6 +45,7 @@ case class WriteIntoPaimonTable(
   extends RunnableCommand
   with ExpressionHelper
   with SchemaEvolutionHelper
+  with CheckConstraintHelper
   with Logging {
 
   override def run(sparkSession: SparkSession): Seq[Row] = {
@@ -53,6 +54,9 @@ case class WriteIntoPaimonTable(
         sparkSession,
         ReplacePaimonFunctions(sparkSession)(_data.queryExecution.analyzed))
     mergeSchema(sparkSession, replacedData, options)
+
+    // Validate check constraints before writing
+    validateCheckConstraints(originTable, replacedData)
 
     val (dynamicPartitionOverwriteMode, overwritePartition) = parseSaveMode()
     // use the extra options to rebuild the table object

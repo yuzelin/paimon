@@ -57,6 +57,8 @@ trait SparkShim {
 
   def createCustomResolution(spark: SparkSession): Rule[LogicalPlan]
 
+  def createAlterColumnNullabilityRule(spark: SparkSession): Rule[LogicalPlan]
+
   def createSparkInternalRow(rowType: RowType): SparkInternalRow
 
   def createSparkInternalRowWithBlob(

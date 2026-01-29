@@ -52,7 +52,8 @@ case class MergeIntoPaimonTable(
     matchedActions: Seq[MergeAction],
     notMatchedActions: Seq[MergeAction],
     notMatchedBySourceActions: Seq[MergeAction])
-  extends PaimonRowLevelCommand {
+  extends PaimonRowLevelCommand
+  with CheckConstraintHelper {
 
   import MergeIntoPaimonTable._
 
@@ -70,6 +71,8 @@ case class MergeIntoPaimonTable(
   }
 
   override def run(sparkSession: SparkSession): Seq[Row] = {
+    // Validate check constraints on source data that may be inserted/updated
+    validateMergeConstraints(sparkSession)
     // Avoid that more than one source rows match the same target row.
     checkMatchRationality(sparkSession)
     // Persist the schema that the analyzer evolved in memory (commit deferred to execution).
@@ -81,6 +84,97 @@ case class MergeIntoPaimonTable(
     }
     writer.commit(commitMessages, Snapshot.Operation.MERGE)
     Seq.empty[Row]
+  }
+
+  /**
+   * Validate check constraints on the data for MERGE operations. Only validates rows that will
+   * actually be inserted or updated, respecting merge conditions and action conditions.
+   *
+   * Caches source and target datasets to avoid redundant scans across different action types.
+   */
+  private def validateMergeConstraints(sparkSession: SparkSession): Unit = {
+    val hasInsertOrUpdate = matchedActions.exists(_.isInstanceOf[UpdateAction]) ||
+      notMatchedActions.exists(_.isInstanceOf[InsertAction]) ||
+      notMatchedBySourceActions.exists(_.isInstanceOf[UpdateAction])
+
+    if (!hasInsertOrUpdate) {
+      return
+    }
+
+    val constraints = getCheckConstraints(table)
+    if (constraints.isEmpty) {
+      return
+    }
+
+    val targetCols = filteredTargetPlan.output.map(_.name)
+
+    // Cache source and target datasets to avoid redundant scans across action types
+    val sourceDS = createDataset(sparkSession, sourceTable).alias("__paimon_src__").cache()
+    val targetDS = createDataset(sparkSession, filteredTargetPlan).alias("__paimon_tgt__").cache()
+
+    try {
+      // Validate INSERT actions (WHEN NOT MATCHED): only unmatched source rows
+      val insertActions = notMatchedActions.collect { case a: InsertAction => a }
+      if (insertActions.nonEmpty) {
+        // Anti-join to get only source rows that do NOT match any target row
+        val unmatchedSourceDS = sourceDS.join(targetDS, toColumn(mergeCondition), "left_anti")
+
+        insertActions.foreach {
+          action =>
+            val filteredDS = action.condition match {
+              case Some(cond) => unmatchedSourceDS.filter(toColumn(cond))
+              case None => unmatchedSourceDS
+            }
+            val assignmentMap = action.assignments
+              .zip(targetCols)
+              .map { case (assignment, colName) => toColumn(assignment.value).as(colName) }
+            val projectedSource = filteredDS.select(assignmentMap: _*)
+            validateCheckConstraints(table, projectedSource)
+        }
+      }
+
+      // Validate matched UPDATE actions (WHEN MATCHED): inner-joined rows with action conditions
+      val matchedUpdateActions = matchedActions.collect { case a: UpdateAction => a }
+      if (matchedUpdateActions.nonEmpty) {
+        val joinedDS = sourceDS.join(targetDS, toColumn(mergeCondition), "inner")
+
+        matchedUpdateActions.foreach {
+          action =>
+            val filteredDS = action.condition match {
+              case Some(cond) => joinedDS.filter(toColumn(cond))
+              case None => joinedDS
+            }
+            val assignmentMap = action.assignments
+              .zip(targetCols)
+              .map { case (assignment, colName) => toColumn(assignment.value).as(colName) }
+            val updatedDS = filteredDS.select(assignmentMap: _*)
+            validateCheckConstraints(table, updatedDS)
+        }
+      }
+
+      // Validate NOT MATCHED BY SOURCE UPDATE actions: target rows with no matching source row
+      val notMatchedBySourceUpdateActions =
+        notMatchedBySourceActions.collect { case a: UpdateAction => a }
+      if (notMatchedBySourceUpdateActions.nonEmpty) {
+        val unmatchedTargetDS = targetDS.join(sourceDS, toColumn(mergeCondition), "left_anti")
+
+        notMatchedBySourceUpdateActions.foreach {
+          action =>
+            val filteredDS = action.condition match {
+              case Some(cond) => unmatchedTargetDS.filter(toColumn(cond))
+              case None => unmatchedTargetDS
+            }
+            val assignmentMap = action.assignments
+              .zip(targetCols)
+              .map { case (assignment, colName) => toColumn(assignment.value).as(colName) }
+            val updatedDS = filteredDS.select(assignmentMap: _*)
+            validateCheckConstraints(table, updatedDS)
+        }
+      }
+    } finally {
+      sourceDS.unpersist()
+      targetDS.unpersist()
+    }
   }
 
   private def performMergeForPkTable(sparkSession: SparkSession): Seq[CommitMessage] = {

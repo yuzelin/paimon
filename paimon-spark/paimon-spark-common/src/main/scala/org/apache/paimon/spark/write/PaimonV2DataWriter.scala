@@ -27,7 +27,9 @@ import org.apache.paimon.types.RowType
 import org.apache.paimon.utils.IOUtils
 
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Expression}
 import org.apache.spark.sql.catalyst.expressions.JoinedRow
+import org.apache.spark.sql.catalyst.expressions.codegen.GeneratePredicate
 import org.apache.spark.sql.connector.metric.CustomTaskMetric
 import org.apache.spark.sql.types.StructType
 
@@ -39,6 +41,7 @@ case class PaimonV2DataWriter(
     dataSchema: StructType,
     coreOptions: CoreOptions,
     catalogContext: CatalogContext,
+    boundConstraints: Seq[(String, String, Expression)] = Seq.empty,
     batchId: Option[Long] = None,
     paimonWriteType: Option[RowType] = None,
     metadataSchema: Option[StructType] = None,
@@ -95,7 +98,47 @@ case class PaimonV2DataWriter(
 
   private val joinedRow = new JoinedRow()
 
+  /**
+   * Compiled constraint validators - each returns true if constraint is satisfied. Expressions are
+   * already resolved and bound on the driver side (in PaimonBatchWrite) to avoid requiring
+   * SparkSession on executors.
+   *
+   * NOTE: Uses writeSchema (not dataSchema) because the incoming records are in writeSchema format.
+   */
+  private lazy val constraintValidators: Seq[(String, String, InternalRow => Boolean)] = {
+    if (boundConstraints.isEmpty) {
+      Seq.empty
+    } else {
+      val attrs =
+        writeSchema.map(field => AttributeReference(field.name, field.dataType, field.nullable)())
+      boundConstraints.map {
+        case (name, exprStr, boundExpr) =>
+          val predicate = GeneratePredicate.generate(boundExpr, attrs)
+          (
+            name,
+            exprStr,
+            (row: InternalRow) => {
+              predicate.eval(row)
+            })
+      }
+    }
+  }
+
+  /** Validate a row against all check constraints */
+  private def validateConstraints(record: InternalRow): Unit = {
+    constraintValidators.foreach {
+      case (name, exprStr, validator) =>
+        if (!validator(record)) {
+          throw new RuntimeException(s"CHECK constraint '$name' ($exprStr) violated")
+        }
+    }
+  }
+
   override def write(record: InternalRow): Unit = {
+    // Validate check constraints before writing
+    if (boundConstraints.nonEmpty) {
+      validateConstraints(record)
+    }
     plainRowConverter match {
       case Some(converter) =>
         postWrite(getPlainWrite.writeAndReturn(converter.apply(record)))
@@ -133,4 +176,9 @@ case class PaimonV2DataWriter(
   override def currentMetricsValues(): Array[CustomTaskMetric] = {
     metricRegistry.buildSparkWriteMetrics()
   }
+}
+
+object PaimonV2DataWriter {
+
+  def emptyBoundConstraints(): Seq[(String, String, Expression)] = Seq.empty
 }

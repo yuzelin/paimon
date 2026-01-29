@@ -305,6 +305,28 @@ class PaimonSqlExtensionsAstBuilder(delegate: ParserInterface)
     }
   }
 
+  /** Create an ADD CHECK CONSTRAINT logical command. */
+  override def visitAddCheckConstraint(ctx: AddCheckConstraintContext): AddCheckConstraintCommand =
+    withOrigin(ctx) {
+      val tableName = typedVisit[Seq[String]](ctx.multipartIdentifier)
+      val constraintName = ctx.identifier().getText
+      // Get the original text from input stream to preserve exact formatting
+      val checkExprCtx = ctx.checkExpr()
+      val inputStream = checkExprCtx.getStart.getInputStream
+      val checkExpr = inputStream.getText(
+        Interval.of(checkExprCtx.getStart.getStartIndex, checkExprCtx.getStop.getStopIndex))
+      AddCheckConstraintCommand(tableName, constraintName, checkExpr)
+    }
+
+  /** Create a DROP CHECK CONSTRAINT logical command. */
+  override def visitDropCheckConstraint(
+      ctx: DropCheckConstraintContext): DropCheckConstraintCommand = withOrigin(ctx) {
+    val tableName = typedVisit[Seq[String]](ctx.multipartIdentifier)
+    val constraintName = ctx.identifier().getText
+    val ifExists = ctx.EXISTS() != null
+    DropCheckConstraintCommand(tableName, constraintName, ifExists)
+  }
+
   private def toBuffer[T](list: java.util.List[T]) = list.asScala
 
   private def toSeq[T](list: java.util.List[T]) = toBuffer(list)

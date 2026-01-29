@@ -26,7 +26,9 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.schema.ColumnDirectiveUtils.ConvertedColumn;
+import org.apache.paimon.schema.SchemaChange.AddCheckConstraint;
 import org.apache.paimon.schema.SchemaChange.AddColumn;
+import org.apache.paimon.schema.SchemaChange.DropCheckConstraint;
 import org.apache.paimon.schema.SchemaChange.DropColumn;
 import org.apache.paimon.schema.SchemaChange.RemoveOption;
 import org.apache.paimon.schema.SchemaChange.RenameColumn;
@@ -82,6 +84,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static org.apache.paimon.CoreOptions.AGG_FUNCTION;
@@ -114,6 +118,9 @@ import static org.apache.paimon.utils.Preconditions.checkState;
 public class SchemaManager implements Serializable {
 
     public static final String SCHEMA_PREFIX = "schema-";
+
+    /** Prefix for CHECK constraint table options. Format: constraint.check.{constraintName}. */
+    public static final String CHECK_CONSTRAINT_PREFIX = "constraint.check.";
 
     private final FileIO fileIO;
     private final Path tableRoot;
@@ -318,7 +325,8 @@ public class SchemaManager implements Serializable {
         AtomicInteger highestFieldId = new AtomicInteger(oldTableSchema.highestFieldId());
         String newComment = oldTableSchema.comment();
         List<String> newPrimaryKeys = oldTableSchema.primaryKeys();
-        for (SchemaChange change : changes) {
+        for (int changeIndex = 0; changeIndex < changes.size(); changeIndex++) {
+            SchemaChange change = changes.get(changeIndex);
             if (change instanceof SetOption) {
                 SetOption setOption = (SetOption) change;
                 String oldValue = oldOptions.get(setOption.key());
@@ -460,7 +468,7 @@ public class SchemaManager implements Serializable {
                 }.updateIntermediateColumn(newFields, 0);
             } else if (change instanceof DropColumn) {
                 DropColumn drop = (DropColumn) change;
-                dropColumnValidation(oldTableSchema, drop);
+                dropColumnValidation(oldTableSchema, drop, newOptions, changes, changeIndex);
                 if (drop.fieldNames().length == 1) {
                     String dropName = drop.fieldNames()[0];
                     newFields.stream()
@@ -597,6 +605,26 @@ public class SchemaManager implements Serializable {
                             "Cannot drop primary keys on a non-empty table.");
                 }
                 newPrimaryKeys = Collections.emptyList();
+            } else if (change instanceof AddCheckConstraint) {
+                AddCheckConstraint addConstraint = (AddCheckConstraint) change;
+                String constraintKey = checkConstraintKey(addConstraint.constraintName());
+                if (newOptions.containsKey(constraintKey)) {
+                    throw new IllegalArgumentException(
+                            String.format(
+                                    "Constraint '%s' already exists in the table.",
+                                    addConstraint.constraintName()));
+                }
+                newOptions.put(constraintKey, addConstraint.expression());
+            } else if (change instanceof DropCheckConstraint) {
+                DropCheckConstraint dropConstraint = (DropCheckConstraint) change;
+                String constraintKey = checkConstraintKey(dropConstraint.constraintName());
+                if (!newOptions.containsKey(constraintKey)) {
+                    throw new IllegalArgumentException(
+                            String.format(
+                                    "Constraint '%s' does not exist in the table.",
+                                    dropConstraint.constraintName()));
+                }
+                newOptions.remove(constraintKey);
             } else {
                 throw new UnsupportedOperationException("Unsupported change: " + change.getClass());
             }
@@ -624,6 +652,11 @@ public class SchemaManager implements Serializable {
                         newSchema.comment());
         SchemaValidation.validateTableSchema(newTableSchema);
         return newTableSchema;
+    }
+
+    /** Generate the table option key for a CHECK constraint. */
+    public static String checkConstraintKey(String constraintName) {
+        return CHECK_CONSTRAINT_PREFIX + constraintName;
     }
 
     // gets the rootType at the defined depth
@@ -807,11 +840,10 @@ public class SchemaManager implements Serializable {
 
         Map<String, String> renameMappings =
                 Streams.stream(renameColumns)
+                        .filter(rename -> rename.fieldNames().length == 1)
                         .collect(
                                 Collectors.toMap(
-                                        // currently only non-nested columns are supported
-                                        rename -> rename.fieldNames()[0],
-                                        RenameColumn::newName));
+                                        rename -> rename.fieldNames()[0], RenameColumn::newName));
 
         // case 1: the option key is fixed and only value may contain field names
 
@@ -894,6 +926,65 @@ public class SchemaManager implements Serializable {
             }
         }
 
+        // case 4: update CHECK constraint expressions with renamed columns
+        for (RenameColumn rename : renameColumns) {
+            String[] fieldNames = rename.fieldNames();
+            String newFieldName = rename.newName();
+
+            for (String key : new ArrayList<>(newOptions.keySet())) {
+                if (!key.startsWith(CHECK_CONSTRAINT_PREFIX)) {
+                    continue;
+                }
+                String expression = newOptions.get(key);
+                if (expression == null) {
+                    continue;
+                }
+
+                String updatedExpression = expression;
+                if (fieldNames.length == 1) {
+                    // Top-level column rename
+                    String fieldName = fieldNames[0];
+                    if (updatedExpression.contains(fieldName)) {
+                        updatedExpression =
+                                updatedExpression.replaceAll(
+                                        "(?:\\b|(?<=`))"
+                                                + Pattern.quote(fieldName)
+                                                + "(?:\\b|(?=`))",
+                                        Matcher.quoteReplacement(newFieldName));
+                    }
+                } else {
+                    // Nested column rename: build full dotted path
+                    // e.g., RENAME COLUMN struct_col.field TO new_field
+                    // fieldNames = ["struct_col", "field"], newName = "new_field"
+                    String oldDottedPath = String.join(".", fieldNames);
+                    String[] newPathParts = Arrays.copyOf(fieldNames, fieldNames.length);
+                    newPathParts[newPathParts.length - 1] = newFieldName;
+                    String newDottedPath = String.join(".", newPathParts);
+
+                    // Replace plain dot notation with word boundaries
+                    if (updatedExpression.contains(oldDottedPath)) {
+                        updatedExpression =
+                                updatedExpression.replaceAll(
+                                        buildNestedPathPattern(fieldNames),
+                                        Matcher.quoteReplacement(newDottedPath));
+                    }
+
+                    // Also handle backtick-quoted notation
+                    // e.g., `struct_col`.`field` -> `struct_col`.`new_field`
+                    String oldBacktickPath = buildBacktickPath(fieldNames);
+                    String newBacktickPath = buildBacktickPath(newPathParts);
+                    if (updatedExpression.contains(oldBacktickPath)) {
+                        updatedExpression =
+                                updatedExpression.replace(oldBacktickPath, newBacktickPath);
+                    }
+                }
+
+                if (!updatedExpression.equals(expression)) {
+                    newOptions.put(key, updatedExpression);
+                }
+            }
+        }
+
         return newOptions;
     }
 
@@ -923,17 +1014,111 @@ public class SchemaManager implements Serializable {
                 .collect(Collectors.toList());
     }
 
-    private static void dropColumnValidation(TableSchema schema, DropColumn change) {
+    private static void dropColumnValidation(
+            TableSchema schema,
+            DropColumn change,
+            Map<String, String> newOptions,
+            List<SchemaChange> changes,
+            int dropChangeIndex) {
+        String[] fieldNames = change.fieldNames();
         // primary keys and partition keys can't be nested columns
-        if (change.fieldNames().length > 1) {
-            return;
+        if (fieldNames.length == 1) {
+            String columnToDrop = fieldNames[0];
+            if (schema.partitionKeys().contains(columnToDrop)
+                    || schema.primaryKeys().contains(columnToDrop)) {
+                throw new UnsupportedOperationException(
+                        String.format(
+                                "Cannot drop partition key or primary key: [%s]", columnToDrop));
+            }
         }
-        String columnToDrop = change.fieldNames()[0];
-        if (schema.partitionKeys().contains(columnToDrop)
-                || schema.primaryKeys().contains(columnToDrop)) {
-            throw new UnsupportedOperationException(
-                    String.format("Cannot drop partition key or primary key: [%s]", columnToDrop));
+
+        // Full dotted path of the column being dropped
+        String columnPathToDrop = String.join(".", fieldNames);
+
+        // Build rename mapping only from changes that appear before the current drop
+        // Key: old column path, Value: new column path
+        Map<String, String> renameMapping = new HashMap<>();
+        for (int i = 0; i < dropChangeIndex; i++) {
+            SchemaChange c = changes.get(i);
+            if (c instanceof RenameColumn) {
+                RenameColumn rename = (RenameColumn) c;
+                if (rename.fieldNames().length == 1) {
+                    renameMapping.put(rename.fieldNames()[0], rename.newName());
+                } else {
+                    // Nested rename: build old and new dotted paths
+                    String oldPath = String.join(".", rename.fieldNames());
+                    String[] newPathParts =
+                            Arrays.copyOf(rename.fieldNames(), rename.fieldNames().length);
+                    newPathParts[newPathParts.length - 1] = rename.newName();
+                    renameMapping.put(oldPath, String.join(".", newPathParts));
+                }
+            }
         }
+
+        // Check if any CHECK constraint references this column
+        // Use newOptions which reflects add/drop constraint changes in the same batch
+        for (Map.Entry<String, String> entry : newOptions.entrySet()) {
+            String key = entry.getKey();
+            String value = entry.getValue();
+            if (key.startsWith(CHECK_CONSTRAINT_PREFIX) && value != null) {
+                String constraintName = key.substring(CHECK_CONSTRAINT_PREFIX.length());
+                // Apply pending renames to the expression before checking
+                String expression = value;
+                for (Map.Entry<String, String> renameEntry : renameMapping.entrySet()) {
+                    if (expression.contains(renameEntry.getKey())) {
+                        expression =
+                                expression.replaceAll(
+                                        "(?:\\b|(?<=`))"
+                                                + Pattern.quote(renameEntry.getKey())
+                                                + "(?:\\b|(?=`))",
+                                        Matcher.quoteReplacement(renameEntry.getValue()));
+                    }
+                }
+                if (expression.matches(
+                        ".*(?:\\b|(?<=`))" + Pattern.quote(columnPathToDrop) + "(?:\\b|(?=`)).*")) {
+                    throw new UnsupportedOperationException(
+                            String.format(
+                                    "Cannot drop column [%s] because it is referenced by CHECK constraint [%s]. "
+                                            + "Please drop the constraint first using: ALTER TABLE <table_name> DROP CONSTRAINT %s",
+                                    columnPathToDrop, constraintName, constraintName));
+                }
+            }
+        }
+    }
+
+    /**
+     * Build a regex pattern that matches a nested column path in both plain and backtick notation.
+     * E.g., for ["struct_col", "field"], matches:
+     *
+     * <ul>
+     *   <li>struct_col.field (plain)
+     *   <li>`struct_col`.`field` (backtick-quoted)
+     *   <li>Mixed notation
+     * </ul>
+     */
+    private static String buildNestedPathPattern(String[] fieldNames) {
+        StringBuilder pattern = new StringBuilder();
+        for (int i = 0; i < fieldNames.length; i++) {
+            if (i > 0) {
+                pattern.append("\\.");
+            }
+            pattern.append("(?:\\b|(?<=`))");
+            pattern.append(Pattern.quote(fieldNames[i]));
+            pattern.append("(?:\\b|(?=`))");
+        }
+        return pattern.toString();
+    }
+
+    /** Build a backtick-quoted dotted path. E.g., ["a", "b"] -> "`a`.`b`". */
+    private static String buildBacktickPath(String[] fieldNames) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < fieldNames.length; i++) {
+            if (i > 0) {
+                sb.append(".");
+            }
+            sb.append("`").append(fieldNames[i]).append("`");
+        }
+        return sb.toString();
     }
 
     private static void assertNotUpdatingPartitionKeys(

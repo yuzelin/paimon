@@ -74,6 +74,8 @@ statement
     | ALTER TABLE multipartIdentifier createReplaceTagClause                                #createOrReplaceTag
     | ALTER TABLE multipartIdentifier DELETE TAG (IF EXISTS)? identifier                    #deleteTag
     | ALTER TABLE multipartIdentifier RENAME TAG identifier TO identifier                   #renameTag
+    | ALTER TABLE multipartIdentifier ADD CONSTRAINT identifier CHECK '(' checkExpr ')'     #addCheckConstraint
+    | ALTER TABLE multipartIdentifier DROP CONSTRAINT (IF EXISTS)? identifier               #dropCheckConstraint
     | COPY INTO multipartIdentifier ('(' columnList ')')?
       FROM sourcePath=STRING
       fileFormatClause
@@ -184,6 +186,17 @@ booleanValue
     : TRUE | FALSE
     ;
 
+// Check expression with explicit balanced parentheses handling - will be parsed by Spark's parser
+// Use * (zero or more) to allow empty parentheses like rand(), uuid()
+checkExpr
+    : checkExprAtom*
+    ;
+
+checkExprAtom
+    : '(' checkExpr ')'
+    | ~('(' | ')')+
+    ;
+
 number
     : MINUS? EXPONENT_VALUE           #exponentLiteral
     | MINUS? DECIMAL_VALUE            #decimalLiteral
@@ -211,7 +224,7 @@ quotedIdentifier
     ;
 
 nonReserved
-    : ALTER | AS | CALL | CREATE | DAYS | DELETE | EXISTS | HOURS | IF | LIKE
+    : ADD | ALTER | AS | CALL | CHECK | CONSTRAINT | CREATE | DAYS | DELETE | DROP | EXISTS | HOURS | IF | LIKE
     | NOT | OF | OR | TABLE | REPLACE | RETAIN | VERSION | TAG
     | TRUE | FALSE
     | MAP
@@ -221,12 +234,16 @@ nonReserved
     | PARQUET
     ;
 
+ADD: 'ADD';
 ALTER: 'ALTER';
 AS: 'AS';
 CALL: 'CALL';
+CHECK: 'CHECK';
+CONSTRAINT: 'CONSTRAINT';
 CREATE: 'CREATE';
 DAYS: 'DAYS';
 DELETE: 'DELETE';
+DROP: 'DROP';
 EXISTS: 'EXISTS';
 HOURS: 'HOURS';
 IF : 'IF';

@@ -159,7 +159,10 @@ abstract class AbstractPaimonSparkSqlExtensionsParser(val delegate: ParserInterf
       .replaceAll("/\\*.*?\\*/", " ")
       .replaceAll("`", "")
       .trim()
-    isPaimonProcedure(normalized) || isTagRefDdl(normalized) || isCopyInto(normalized)
+    isPaimonProcedure(normalized) ||
+    isTagRefDdl(normalized) ||
+    isCopyInto(normalized) ||
+    isCheckConstraintDdl(normalized)
   }
 
   // All builtin paimon procedures are under the 'sys' namespace
@@ -179,6 +182,17 @@ abstract class AbstractPaimonSparkSqlExtensionsParser(val delegate: ParserInterf
 
   private def isCopyInto(normalized: String): Boolean = {
     normalized.startsWith("copy into")
+  }
+
+  private def isCheckConstraintDdl(normalized: String): Boolean = {
+    normalized.startsWith("alter table") &&
+    ((normalized.contains("add constraint") &&
+      (normalized.contains(" check ") || normalized.contains(" check("))) ||
+      // Route all DROP CONSTRAINT to Paimon parser. The DROP CONSTRAINT <name> syntax
+      // does not include the constraint type, so we cannot distinguish CHECK vs other
+      // constraints from SQL text alone. Since Paimon only supports CHECK constraints,
+      // the executor will report "constraint not found" for non-existent names.
+      normalized.contains("drop constraint"))
   }
 
   /**

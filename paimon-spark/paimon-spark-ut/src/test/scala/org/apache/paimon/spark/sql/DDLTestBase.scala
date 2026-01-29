@@ -25,6 +25,8 @@ import org.apache.paimon.types.DataTypes
 
 import org.apache.spark.sql.{AnalysisException, Row}
 import org.apache.spark.sql.catalyst.analysis.NoSuchPartitionsException
+import org.apache.spark.sql.paimon.shims.memstream.MemoryStream
+import org.apache.spark.sql.streaming.StreamingQueryException
 import org.apache.spark.sql.types.TimestampType
 import org.junit.jupiter.api.Assertions
 
@@ -1023,6 +1025,1406 @@ abstract class DDLTestBase extends PaimonSparkTestBase {
       assertThrows[NoSuchPartitionsException] {
         spark.sql("ALTER TABLE tbl DROP PARTITION (dt='2023-01-01', hour='00', event='event1')")
       }
+    }
+  }
+
+  test("Paimon DDL: alter column SET/DROP NOT NULL") {
+    withTable("T") {
+      // Create table with NOT NULL constraint
+      sql("CREATE TABLE T (id INT NOT NULL, name STRING NOT NULL, age INT)")
+      sql("""INSERT INTO T VALUES (1, "a", 10), (2, "b", 20)""")
+
+      // Verify initial schema
+      var schema = spark.table("T").schema
+      Assertions.assertFalse(schema("id").nullable)
+      Assertions.assertFalse(schema("name").nullable)
+      Assertions.assertTrue(schema("age").nullable)
+
+      // DROP NOT NULL on 'name' column
+      sql("ALTER TABLE T ALTER COLUMN name DROP NOT NULL")
+      schema = spark.table("T").schema
+      Assertions.assertFalse(schema("id").nullable)
+      Assertions.assertTrue(schema("name").nullable) // Should be nullable now
+      Assertions.assertTrue(schema("age").nullable)
+
+      // Now we can insert null for 'name'
+      sql("""INSERT INTO T VALUES (3, null, 30)""")
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Seq(Row(1, "a", 10), Row(2, "b", 20), Row(3, null, 30))
+      )
+
+      // SET NOT NULL on 'age' column (our custom rule bypasses Spark's restriction)
+      sql("ALTER TABLE T ALTER COLUMN age SET NOT NULL")
+      schema = spark.table("T").schema
+      Assertions.assertFalse(schema("id").nullable)
+      Assertions.assertTrue(schema("name").nullable)
+      Assertions.assertFalse(schema("age").nullable) // Should be non-nullable now
+
+      // Verify that null values can no longer be inserted for 'age'
+      val e = intercept[Exception] {
+        sql("""INSERT INTO T VALUES (4, "d", null)""")
+      }
+      Assertions.assertTrue(e.getMessage().contains("value appeared in non-nullable field"))
+    }
+  }
+
+  test("Paimon DDL: SET NOT NULL validates existing data") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, value INT) USING paimon")
+
+      // Insert data including NULL values
+      sql("INSERT INTO T VALUES (1, 100)")
+      sql("INSERT INTO T VALUES (2, null)")
+      sql("INSERT INTO T VALUES (3, 200)")
+
+      // SET NOT NULL should fail because existing data has NULL values
+      val e = intercept[Exception] {
+        sql("ALTER TABLE T ALTER COLUMN value SET NOT NULL")
+      }
+      Assertions.assertTrue(
+        e.getMessage.contains("NULL values") ||
+          e.getMessage.contains("existing rows"),
+        s"Expected NULL values error but got: ${e.getMessage}")
+
+      // Data should remain unchanged
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 100) :: Row(2, null) :: Row(3, 200) :: Nil
+      )
+
+      // Column should still be nullable
+      Assertions.assertTrue(spark.table("T").schema("value").nullable)
+    }
+  }
+
+  test("Paimon DDL: SET NOT NULL succeeds on valid data") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, value INT) USING paimon")
+
+      // Insert data without NULL values
+      sql("INSERT INTO T VALUES (1, 100)")
+      sql("INSERT INTO T VALUES (2, 200)")
+
+      // SET NOT NULL should succeed
+      sql("ALTER TABLE T ALTER COLUMN value SET NOT NULL")
+
+      // Verify constraint is enforced
+      val e = intercept[Exception] {
+        sql("INSERT INTO T VALUES (3, null)")
+      }
+      Assertions.assertTrue(e.getMessage.contains("value appeared in non-nullable field"))
+
+      // Column should be non-nullable now
+      Assertions.assertFalse(spark.table("T").schema("value").nullable)
+    }
+  }
+
+  test("Paimon DDL: SET NOT NULL then DROP NOT NULL on same column") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, value INT) USING paimon")
+      sql("INSERT INTO T VALUES (1, 100), (2, 200)")
+
+      // Initially nullable
+      Assertions.assertTrue(spark.table("T").schema("value").nullable)
+
+      // SET NOT NULL
+      sql("ALTER TABLE T ALTER COLUMN value SET NOT NULL")
+      Assertions.assertFalse(spark.table("T").schema("value").nullable)
+
+      // Verify enforcement
+      val e = intercept[Exception] {
+        sql("INSERT INTO T VALUES (3, null)")
+      }
+      Assertions.assertTrue(e.getMessage.contains("value appeared in non-nullable field"))
+
+      // DROP NOT NULL on the same column
+      sql("ALTER TABLE T ALTER COLUMN value DROP NOT NULL")
+      Assertions.assertTrue(spark.table("T").schema("value").nullable)
+
+      // Now NULL values can be inserted again
+      sql("INSERT INTO T VALUES (3, null)")
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 100) :: Row(2, 200) :: Row(3, null) :: Nil
+      )
+    }
+  }
+
+  test("Paimon DDL: SET NOT NULL on already NOT NULL column") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT NOT NULL, value INT) USING paimon")
+      sql("INSERT INTO T VALUES (1, 100)")
+
+      // 'id' is already NOT NULL, SET NOT NULL again should succeed gracefully
+      sql("ALTER TABLE T ALTER COLUMN id SET NOT NULL")
+      Assertions.assertFalse(spark.table("T").schema("id").nullable)
+
+      // Data should be unchanged
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 100) :: Nil
+      )
+    }
+  }
+
+  test("Paimon DDL: DROP NOT NULL on already nullable column") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT NOT NULL, value INT) USING paimon")
+      sql("INSERT INTO T VALUES (1, 100)")
+
+      // 'value' is already nullable, DROP NOT NULL should succeed gracefully
+      sql("ALTER TABLE T ALTER COLUMN value DROP NOT NULL")
+      Assertions.assertTrue(spark.table("T").schema("value").nullable)
+
+      // Data should be unchanged
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 100) :: Nil
+      )
+    }
+  }
+
+  test("Paimon DDL: SET NOT NULL on primary key table non-PK column") {
+    withTable("T") {
+      sql("""CREATE TABLE T (id INT, name STRING, value INT)
+            |TBLPROPERTIES ('primary-key' = 'id')
+            |""".stripMargin)
+
+      // PK column is already NOT NULL
+      Assertions.assertFalse(spark.table("T").schema("id").nullable)
+      Assertions.assertTrue(spark.table("T").schema("value").nullable)
+
+      // Insert valid data
+      sql("INSERT INTO T VALUES (1, 'Alice', 100)")
+      sql("INSERT INTO T VALUES (2, 'Bob', 200)")
+
+      // SET NOT NULL on non-PK column
+      sql("ALTER TABLE T ALTER COLUMN value SET NOT NULL")
+      Assertions.assertFalse(spark.table("T").schema("value").nullable)
+
+      // Verify enforcement
+      val e = intercept[Exception] {
+        sql("INSERT INTO T VALUES (3, 'Charlie', null)")
+      }
+      Assertions.assertTrue(e.getMessage.contains("value appeared in non-nullable field"))
+
+      // Valid insert should succeed
+      sql("INSERT INTO T VALUES (3, 'Charlie', 300)")
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, "Alice", 100) :: Row(2, "Bob", 200) :: Row(3, "Charlie", 300) :: Nil
+      )
+    }
+  }
+
+  test("Paimon DDL: SET NOT NULL on partitioned table") {
+    withTable("T") {
+      sql("""CREATE TABLE T (id INT, value INT, pt STRING)
+            |USING paimon
+            |PARTITIONED BY (pt)
+            |""".stripMargin)
+
+      sql("INSERT INTO T VALUES (1, 100, 'p1'), (2, 200, 'p2')")
+
+      // SET NOT NULL on data column
+      sql("ALTER TABLE T ALTER COLUMN value SET NOT NULL")
+      Assertions.assertFalse(spark.table("T").schema("value").nullable)
+
+      // Verify enforcement across partitions
+      val e1 = intercept[Exception] {
+        sql("INSERT INTO T VALUES (3, null, 'p1')")
+      }
+      Assertions.assertTrue(e1.getMessage.contains("value appeared in non-nullable field"))
+
+      val e2 = intercept[Exception] {
+        sql("INSERT INTO T VALUES (4, null, 'p2')")
+      }
+      Assertions.assertTrue(e2.getMessage.contains("value appeared in non-nullable field"))
+
+      // Valid inserts should succeed
+      sql("INSERT INTO T VALUES (3, 300, 'p1'), (4, 400, 'p2')")
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 100, "p1") :: Row(2, 200, "p2") :: Row(3, 300, "p1") :: Row(4, 400, "p2") :: Nil
+      )
+    }
+  }
+
+  test("Paimon DDL: SET NOT NULL with batch INSERT containing NULLs") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, value INT) USING paimon")
+      sql("INSERT INTO T VALUES (1, 100)")
+
+      sql("ALTER TABLE T ALTER COLUMN value SET NOT NULL")
+
+      // Batch insert where some rows have NULL should fail
+      val e = intercept[Exception] {
+        sql("INSERT INTO T VALUES (2, 200), (3, null), (4, 400)")
+      }
+      Assertions.assertTrue(e.getMessage.contains("value appeared in non-nullable field"))
+
+      // All valid batch insert should succeed
+      sql("INSERT INTO T VALUES (2, 200), (3, 300), (4, 400)")
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 100) :: Row(2, 200) :: Row(3, 300) :: Row(4, 400) :: Nil
+      )
+    }
+  }
+
+  test("Paimon DDL: SET NOT NULL on multiple columns") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, col1 INT, col2 STRING, col3 INT) USING paimon")
+      sql("INSERT INTO T VALUES (1, 10, 'a', 100)")
+
+      // All columns initially nullable (except id which is nullable too here)
+      Assertions.assertTrue(spark.table("T").schema("col1").nullable)
+      Assertions.assertTrue(spark.table("T").schema("col2").nullable)
+      Assertions.assertTrue(spark.table("T").schema("col3").nullable)
+
+      // SET NOT NULL on multiple columns sequentially
+      sql("ALTER TABLE T ALTER COLUMN col1 SET NOT NULL")
+      sql("ALTER TABLE T ALTER COLUMN col3 SET NOT NULL")
+
+      Assertions.assertFalse(spark.table("T").schema("col1").nullable)
+      Assertions.assertTrue(spark.table("T").schema("col2").nullable) // unchanged
+      Assertions.assertFalse(spark.table("T").schema("col3").nullable)
+
+      // NULL in col1 should fail
+      val e1 = intercept[Exception] {
+        sql("INSERT INTO T VALUES (2, null, 'b', 200)")
+      }
+      Assertions.assertTrue(e1.getMessage.contains("value appeared in non-nullable field"))
+
+      // NULL in col2 (still nullable) should succeed
+      sql("INSERT INTO T VALUES (2, 20, null, 200)")
+
+      // NULL in col3 should fail
+      val e2 = intercept[Exception] {
+        sql("INSERT INTO T VALUES (3, 30, 'c', null)")
+      }
+      Assertions.assertTrue(e2.getMessage.contains("value appeared in non-nullable field"))
+
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 10, "a", 100) :: Row(2, 20, null, 200) :: Nil
+      )
+    }
+  }
+
+  test("Paimon DDL: SET NOT NULL after removing NULL data") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, value INT) USING paimon TBLPROPERTIES ('primary-key' = 'id')")
+
+      // Insert data including NULL values
+      sql("INSERT INTO T VALUES (1, 100)")
+      sql("INSERT INTO T VALUES (2, null)")
+      sql("INSERT INTO T VALUES (3, 200)")
+
+      // SET NOT NULL should fail with existing NULLs
+      val e = intercept[Exception] {
+        sql("ALTER TABLE T ALTER COLUMN value SET NOT NULL")
+      }
+      Assertions.assertTrue(
+        e.getMessage.contains("NULL values") ||
+          e.getMessage.contains("existing rows"),
+        s"Expected NULL values error but got: ${e.getMessage}")
+
+      // Remove the row with NULL value by overwriting with non-null value
+      sql("INSERT INTO T VALUES (2, 150)")
+
+      // Now SET NOT NULL should succeed
+      sql("ALTER TABLE T ALTER COLUMN value SET NOT NULL")
+      Assertions.assertFalse(spark.table("T").schema("value").nullable)
+
+      // Verify enforcement
+      val e2 = intercept[Exception] {
+        sql("INSERT INTO T VALUES (4, null)")
+      }
+      Assertions.assertTrue(e2.getMessage.contains("value appeared in non-nullable field"))
+    }
+  }
+
+  test("Paimon DDL: add and drop CHECK constraint") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, salary INT, name STRING) USING paimon")
+
+      // Add CHECK constraint
+      sql("ALTER TABLE T ADD CONSTRAINT salary_check CHECK (salary > 0)")
+
+      // Verify constraint is stored in table options
+      val table = loadTable("T")
+      val options = table.options()
+      Assertions.assertTrue(options.containsKey("constraint.check.salary_check"))
+      Assertions.assertEquals("salary > 0", options.get("constraint.check.salary_check"))
+
+      // Add another constraint
+      sql("ALTER TABLE T ADD CONSTRAINT name_check CHECK (name IS NOT NULL)")
+      val table2 = loadTable("T")
+      val options2 = table2.options()
+      Assertions.assertTrue(options2.containsKey("constraint.check.name_check"))
+      Assertions.assertEquals("name IS NOT NULL", options2.get("constraint.check.name_check"))
+
+      // Try to add duplicate constraint
+      val e = intercept[Exception] {
+        sql("ALTER TABLE T ADD CONSTRAINT salary_check CHECK (salary > 100)")
+      }
+      Assertions.assertTrue(e.getMessage.contains("already exists"))
+
+      // Drop constraint
+      sql("ALTER TABLE T DROP CONSTRAINT salary_check")
+      val table3 = loadTable("T")
+      val options3 = table3.options()
+      Assertions.assertFalse(options3.containsKey("constraint.check.salary_check"))
+      Assertions.assertTrue(options3.containsKey("constraint.check.name_check"))
+
+      // Try to drop non-existing constraint
+      val e2 = intercept[Exception] {
+        sql("ALTER TABLE T DROP CONSTRAINT non_existing")
+      }
+      Assertions.assertTrue(e2.getMessage.contains("does not exist"))
+
+      // Drop with IF EXISTS - should not throw error
+      sql("ALTER TABLE T DROP CONSTRAINT IF EXISTS non_existing")
+
+      // Drop remaining constraint
+      sql("ALTER TABLE T DROP CONSTRAINT name_check")
+      val table4 = loadTable("T")
+      val options4 = table4.options()
+      Assertions.assertFalse(options4.containsKey("constraint.check.name_check"))
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint with complex expressions") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, birthDate STRING, salary INT) USING paimon")
+
+      // Add constraint with date comparison
+      sql("ALTER TABLE T ADD CONSTRAINT dateWithinRange CHECK (birthDate > '1900-01-01')")
+
+      val table = loadTable("T")
+      val options = table.options()
+      Assertions.assertTrue(options.containsKey("constraint.check.dateWithinRange"))
+      Assertions.assertEquals(
+        "birthDate > '1900-01-01'",
+        options.get("constraint.check.dateWithinRange"))
+
+      // Add constraint with AND/OR
+      sql("ALTER TABLE T ADD CONSTRAINT salary_range CHECK (salary >= 0 AND salary <= 1000000)")
+
+      val table2 = loadTable("T")
+      val options2 = table2.options()
+      Assertions.assertTrue(options2.containsKey("constraint.check.salary_range"))
+      Assertions.assertEquals(
+        "salary >= 0 AND salary <= 1000000",
+        options2.get("constraint.check.salary_range"))
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint enforcement on INSERT") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, salary INT, name STRING) USING paimon")
+      sql("ALTER TABLE T ADD CONSTRAINT salary_positive CHECK (salary > 0)")
+
+      // Valid insert should succeed
+      sql("INSERT INTO T VALUES (1, 100, 'Alice')")
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 100, "Alice") :: Nil
+      )
+
+      // Invalid insert should fail: salary = 0 violates constraint
+      val e1 = intercept[Exception] {
+        sql("INSERT INTO T VALUES (2, 0, 'Bob')")
+      }
+      Assertions.assertTrue(
+        e1.getMessage.contains("CHECK constraint") &&
+          e1.getMessage.contains("salary_positive"))
+
+      // Invalid insert should fail: salary = -10 violates constraint
+      val e2 = intercept[Exception] {
+        sql("INSERT INTO T VALUES (3, -10, 'Charlie')")
+      }
+      Assertions.assertTrue(
+        e2.getMessage.contains("CHECK constraint") &&
+          e2.getMessage.contains("salary_positive"))
+
+      // Data should remain unchanged after failed inserts
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 100, "Alice") :: Nil
+      )
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint enforcement with multiple constraints") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, age INT, salary INT) USING paimon")
+      sql("ALTER TABLE T ADD CONSTRAINT age_valid CHECK (age >= 0 AND age <= 150)")
+      sql("ALTER TABLE T ADD CONSTRAINT salary_positive CHECK (salary > 0)")
+
+      // Valid insert should succeed
+      sql("INSERT INTO T VALUES (1, 25, 5000)")
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 25, 5000) :: Nil
+      )
+
+      // Violate first constraint (age)
+      val e1 = intercept[Exception] {
+        sql("INSERT INTO T VALUES (2, 200, 5000)")
+      }
+      Assertions.assertTrue(e1.getMessage.contains("CHECK constraint"))
+
+      // Violate second constraint (salary)
+      val e2 = intercept[Exception] {
+        sql("INSERT INTO T VALUES (3, 30, -100)")
+      }
+      Assertions.assertTrue(e2.getMessage.contains("CHECK constraint"))
+
+      // Data should remain unchanged
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 25, 5000) :: Nil
+      )
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint with NULL values") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, value INT) USING paimon")
+      sql("ALTER TABLE T ADD CONSTRAINT value_positive CHECK (value > 0)")
+
+      // NULL values should violate CHECK constraint (stricter than SQL standard,
+      // which treats NULL as "unknown" and does not consider it a violation)
+      val e = intercept[Exception] {
+        sql("INSERT INTO T VALUES (1, null)")
+      }
+      Assertions.assertTrue(e.getMessage.contains("CHECK constraint"))
+
+      // Valid insert should succeed
+      sql("INSERT INTO T VALUES (2, 10)")
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(2, 10) :: Nil
+      )
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint enforcement with V2 Write") {
+    for (useV2Write <- Seq("true", "false")) {
+      withSparkSQLConf("spark.paimon.write.use-v2-write" -> useV2Write) {
+        withTable("T") {
+          sql("CREATE TABLE T (id INT, salary INT, name STRING) USING paimon")
+          sql("ALTER TABLE T ADD CONSTRAINT salary_positive CHECK (salary > 0)")
+
+          // Valid insert should succeed
+          sql("INSERT INTO T VALUES (1, 100, 'Alice')")
+          checkAnswer(
+            sql("SELECT * FROM T ORDER BY id"),
+            Row(1, 100, "Alice") :: Nil
+          )
+
+          // Invalid insert should fail: salary = 0 violates constraint
+          val e1 = intercept[Exception] {
+            sql("INSERT INTO T VALUES (2, 0, 'Bob')")
+          }
+          Assertions.assertTrue(
+            e1.getMessage.contains("CHECK constraint") &&
+              e1.getMessage.contains("salary_positive"),
+            s"Expected CHECK constraint error but got: ${e1.getMessage}")
+
+          // Invalid insert should fail: salary = -10 violates constraint
+          val e2 = intercept[Exception] {
+            sql("INSERT INTO T VALUES (3, -10, 'Charlie')")
+          }
+          Assertions.assertTrue(
+            e2.getMessage.contains("CHECK constraint") &&
+              e2.getMessage.contains("salary_positive"),
+            s"Expected CHECK constraint error but got: ${e2.getMessage}")
+
+          // Data should remain unchanged after failed inserts
+          checkAnswer(
+            sql("SELECT * FROM T ORDER BY id"),
+            Row(1, 100, "Alice") :: Nil
+          )
+        }
+      }
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint enforcement with multiple constraints using V2 Write") {
+    for (useV2Write <- Seq("true", "false")) {
+      withSparkSQLConf("spark.paimon.write.use-v2-write" -> useV2Write) {
+        withTable("T") {
+          sql("CREATE TABLE T (id INT, age INT, salary INT) USING paimon")
+          sql("ALTER TABLE T ADD CONSTRAINT age_valid CHECK (age >= 0 AND age <= 150)")
+          sql("ALTER TABLE T ADD CONSTRAINT salary_positive CHECK (salary > 0)")
+
+          // Valid insert should succeed
+          sql("INSERT INTO T VALUES (1, 25, 5000)")
+          checkAnswer(
+            sql("SELECT * FROM T ORDER BY id"),
+            Row(1, 25, 5000) :: Nil
+          )
+
+          // Violate first constraint (age)
+          val e1 = intercept[Exception] {
+            sql("INSERT INTO T VALUES (2, 200, 5000)")
+          }
+          Assertions.assertTrue(
+            e1.getMessage.contains("CHECK constraint"),
+            s"Expected CHECK constraint error but got: ${e1.getMessage}")
+
+          // Violate second constraint (salary)
+          val e2 = intercept[Exception] {
+            sql("INSERT INTO T VALUES (3, 30, -100)")
+          }
+          Assertions.assertTrue(
+            e2.getMessage.contains("CHECK constraint"),
+            s"Expected CHECK constraint error but got: ${e2.getMessage}")
+
+          // Data should remain unchanged
+          checkAnswer(
+            sql("SELECT * FROM T ORDER BY id"),
+            Row(1, 25, 5000) :: Nil
+          )
+        }
+      }
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint with NULL values using V2 Write") {
+    for (useV2Write <- Seq("true", "false")) {
+      withSparkSQLConf("spark.paimon.write.use-v2-write" -> useV2Write) {
+        withTable("T") {
+          sql("CREATE TABLE T (id INT, value INT) USING paimon")
+          sql("ALTER TABLE T ADD CONSTRAINT value_positive CHECK (value > 0)")
+
+          // NULL values should violate CHECK constraint (stricter than SQL standard,
+          // which treats NULL as "unknown" and does not consider it a violation)
+          val e = intercept[Exception] {
+            sql("INSERT INTO T VALUES (1, null)")
+          }
+          Assertions.assertTrue(
+            e.getMessage.contains("CHECK constraint"),
+            s"Expected CHECK constraint error but got: ${e.getMessage}")
+
+          // Valid insert should succeed
+          sql("INSERT INTO T VALUES (2, 10)")
+          checkAnswer(
+            sql("SELECT * FROM T ORDER BY id"),
+            Row(2, 10) :: Nil
+          )
+        }
+      }
+    }
+  }
+
+  test("Paimon DDL: ADD CHECK constraint validates existing data") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, salary INT) USING paimon")
+
+      // Insert some data first (including invalid data)
+      sql("INSERT INTO T VALUES (1, 100)")
+      sql("INSERT INTO T VALUES (2, -50)")
+      sql("INSERT INTO T VALUES (3, 200)")
+
+      // Adding constraint should fail because existing data violates it
+      val e = intercept[Exception] {
+        sql("ALTER TABLE T ADD CONSTRAINT salary_positive CHECK (salary > 0)")
+      }
+      Assertions.assertTrue(
+        e.getMessage.contains("existing rows violate") ||
+          e.getMessage.contains("CHECK constraint"),
+        s"Expected existing data violation error but got: ${e.getMessage}"
+      )
+
+      // Table should not have the constraint (verify by inserting invalid data)
+      // Note: This might succeed if constraint was not added
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 100) :: Row(2, -50) :: Row(3, 200) :: Nil
+      )
+    }
+  }
+
+  test("Paimon DDL: ADD CHECK constraint succeeds on valid existing data") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, salary INT) USING paimon")
+
+      // Insert valid data only
+      sql("INSERT INTO T VALUES (1, 100)")
+      sql("INSERT INTO T VALUES (2, 200)")
+
+      // Adding constraint should succeed
+      sql("ALTER TABLE T ADD CONSTRAINT salary_positive CHECK (salary > 0)")
+
+      // Verify constraint is enforced for new inserts
+      val e = intercept[Exception] {
+        sql("INSERT INTO T VALUES (3, -50)")
+      }
+      Assertions.assertTrue(
+        e.getMessage.contains("CHECK constraint"),
+        s"Expected CHECK constraint error but got: ${e.getMessage}")
+
+      // Original data should remain
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 100) :: Row(2, 200) :: Nil
+      )
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint rejects non-deterministic expressions") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, value DOUBLE) USING paimon")
+
+      // rand() is non-deterministic and should be rejected
+      val e1 = intercept[Exception] {
+        sql("ALTER TABLE T ADD CONSTRAINT random_check CHECK (value > rand())")
+      }
+      Assertions.assertTrue(
+        e1.getMessage.contains("deterministic") ||
+          e1.getMessage.contains("non-deterministic"),
+        s"Expected deterministic error but got: ${e1.getMessage}")
+
+      // uuid() is non-deterministic and should be rejected
+      val e2 = intercept[Exception] {
+        sql("ALTER TABLE T ADD CONSTRAINT uuid_check CHECK (id > 0 OR uuid() IS NOT NULL)")
+      }
+      Assertions.assertTrue(
+        e2.getMessage.contains("deterministic") ||
+          e2.getMessage.contains("non-deterministic"),
+        s"Expected deterministic error but got: ${e2.getMessage}")
+
+      // Deterministic expressions should be allowed
+      sql("ALTER TABLE T ADD CONSTRAINT value_positive CHECK (value > 0)")
+
+      // Verify constraint was added
+      val options = loadTable("T").options()
+      Assertions.assertTrue(options.containsKey("constraint.check.value_positive"))
+    }
+  }
+
+  test("Paimon DDL: DROP CHECK constraint removes enforcement") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, salary INT) USING paimon")
+      sql("ALTER TABLE T ADD CONSTRAINT salary_positive CHECK (salary > 0)")
+
+      // Verify constraint is enforced
+      val e = intercept[Exception] {
+        sql("INSERT INTO T VALUES (1, -10)")
+      }
+      Assertions.assertTrue(e.getMessage.contains("CHECK constraint"))
+
+      // Drop constraint
+      sql("ALTER TABLE T DROP CONSTRAINT salary_positive")
+
+      // Previously-blocked insert should now succeed
+      sql("INSERT INTO T VALUES (1, -10)")
+      sql("INSERT INTO T VALUES (2, 0)")
+      sql("INSERT INTO T VALUES (3, 100)")
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, -10) :: Row(2, 0) :: Row(3, 100) :: Nil
+      )
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint with batch INSERT containing mixed valid/invalid rows") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, salary INT, name STRING) USING paimon")
+      sql("ALTER TABLE T ADD CONSTRAINT salary_positive CHECK (salary > 0)")
+
+      // Batch insert with some rows violating constraint
+      val e = intercept[Exception] {
+        sql("INSERT INTO T VALUES (1, 100, 'Alice'), (2, -5, 'Bob'), (3, 200, 'Charlie')")
+      }
+      Assertions.assertTrue(
+        e.getMessage.contains("CHECK constraint"),
+        s"Expected CHECK constraint error but got: ${e.getMessage}")
+
+      // All valid batch insert should succeed
+      sql("INSERT INTO T VALUES (1, 100, 'Alice'), (2, 50, 'Bob'), (3, 200, 'Charlie')")
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 100, "Alice") :: Row(2, 50, "Bob") :: Row(3, 200, "Charlie") :: Nil
+      )
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint with multi-column cross reference") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, min_val INT, max_val INT) USING paimon")
+      sql("ALTER TABLE T ADD CONSTRAINT range_valid CHECK (min_val < max_val)")
+
+      // Valid: min_val < max_val
+      sql("INSERT INTO T VALUES (1, 10, 100)")
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 10, 100) :: Nil
+      )
+
+      // Invalid: min_val > max_val
+      val e1 = intercept[Exception] {
+        sql("INSERT INTO T VALUES (2, 100, 10)")
+      }
+      Assertions.assertTrue(
+        e1.getMessage.contains("CHECK constraint"),
+        s"Expected CHECK constraint error but got: ${e1.getMessage}")
+
+      // Invalid: min_val == max_val
+      val e2 = intercept[Exception] {
+        sql("INSERT INTO T VALUES (3, 50, 50)")
+      }
+      Assertions.assertTrue(
+        e2.getMessage.contains("CHECK constraint"),
+        s"Expected CHECK constraint error but got: ${e2.getMessage}")
+
+      // Data should be unchanged
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 10, 100) :: Nil
+      )
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint with built-in functions") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, name STRING, value INT) USING paimon")
+
+      // Constraint using LENGTH function
+      sql("ALTER TABLE T ADD CONSTRAINT name_length CHECK (LENGTH(name) > 0)")
+      // Constraint using ABS function
+      sql("ALTER TABLE T ADD CONSTRAINT value_range CHECK (ABS(value) < 1000)")
+
+      // Valid insert
+      sql("INSERT INTO T VALUES (1, 'Alice', 500)")
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, "Alice", 500) :: Nil
+      )
+
+      // Invalid: empty name (LENGTH = 0)
+      val e1 = intercept[Exception] {
+        sql("INSERT INTO T VALUES (2, '', 100)")
+      }
+      Assertions.assertTrue(
+        e1.getMessage.contains("CHECK constraint"),
+        s"Expected CHECK constraint error but got: ${e1.getMessage}")
+
+      // Invalid: ABS(value) >= 1000
+      val e2 = intercept[Exception] {
+        sql("INSERT INTO T VALUES (3, 'Bob', 1500)")
+      }
+      Assertions.assertTrue(
+        e2.getMessage.contains("CHECK constraint"),
+        s"Expected CHECK constraint error but got: ${e2.getMessage}")
+
+      // Also test negative large value
+      val e3 = intercept[Exception] {
+        sql("INSERT INTO T VALUES (4, 'Charlie', -1500)")
+      }
+      Assertions.assertTrue(
+        e3.getMessage.contains("CHECK constraint"),
+        s"Expected CHECK constraint error but got: ${e3.getMessage}")
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint enforcement on INSERT OVERWRITE") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, salary INT, pt STRING) USING paimon PARTITIONED BY (pt)")
+      sql("ALTER TABLE T ADD CONSTRAINT salary_positive CHECK (salary > 0)")
+
+      // Valid INSERT
+      sql("INSERT INTO T VALUES (1, 100, 'p1')")
+
+      // Valid INSERT OVERWRITE should succeed
+      sql("INSERT OVERWRITE T VALUES (1, 200, 'p1')")
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 200, "p1") :: Nil
+      )
+
+      // Invalid INSERT OVERWRITE should fail
+      val e = intercept[Exception] {
+        sql("INSERT OVERWRITE T VALUES (1, -50, 'p1')")
+      }
+      Assertions.assertTrue(
+        e.getMessage.contains("CHECK constraint"),
+        s"Expected CHECK constraint error but got: ${e.getMessage}")
+
+      // Data should remain unchanged
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 200, "p1") :: Nil
+      )
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint enforcement on INSERT INTO SELECT") {
+    withTable("T", "source") {
+      sql("CREATE TABLE source (id INT, salary INT, name STRING) USING paimon")
+      sql("CREATE TABLE T (id INT, salary INT, name STRING) USING paimon")
+      sql("ALTER TABLE T ADD CONSTRAINT salary_positive CHECK (salary > 0)")
+
+      // Insert valid source data
+      sql("INSERT INTO source VALUES (1, 100, 'Alice'), (2, 200, 'Bob')")
+
+      // INSERT INTO SELECT with all valid data should succeed
+      sql("INSERT INTO T SELECT * FROM source")
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 100, "Alice") :: Row(2, 200, "Bob") :: Nil
+      )
+
+      // Insert invalid source data
+      sql("INSERT INTO source VALUES (3, -50, 'Charlie')")
+
+      // INSERT INTO SELECT with some invalid data should fail
+      val e = intercept[Exception] {
+        sql("INSERT INTO T SELECT * FROM source WHERE id = 3")
+      }
+      Assertions.assertTrue(
+        e.getMessage.contains("CHECK constraint"),
+        s"Expected CHECK constraint error but got: ${e.getMessage}")
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint on primary key table") {
+    withTable("T") {
+      sql("""CREATE TABLE T (id INT, salary INT, name STRING)
+            |TBLPROPERTIES ('primary-key' = 'id')
+            |""".stripMargin)
+      sql("ALTER TABLE T ADD CONSTRAINT salary_positive CHECK (salary > 0)")
+
+      // Valid insert
+      sql("INSERT INTO T VALUES (1, 100, 'Alice')")
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 100, "Alice") :: Nil
+      )
+
+      // Invalid insert should fail
+      val e = intercept[Exception] {
+        sql("INSERT INTO T VALUES (2, -50, 'Bob')")
+      }
+      Assertions.assertTrue(
+        e.getMessage.contains("CHECK constraint"),
+        s"Expected CHECK constraint error but got: ${e.getMessage}")
+
+      // Valid upsert (update existing row)
+      sql("INSERT INTO T VALUES (1, 200, 'Alice Updated')")
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 200, "Alice Updated") :: Nil
+      )
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint on partitioned table") {
+    withTable("T") {
+      sql("""CREATE TABLE T (id INT, salary INT, pt STRING)
+            |USING paimon
+            |PARTITIONED BY (pt)
+            |""".stripMargin)
+      sql("ALTER TABLE T ADD CONSTRAINT salary_positive CHECK (salary > 0)")
+
+      // Valid insert across partitions
+      sql("INSERT INTO T VALUES (1, 100, 'p1')")
+      sql("INSERT INTO T VALUES (2, 200, 'p2')")
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 100, "p1") :: Row(2, 200, "p2") :: Nil
+      )
+
+      // Invalid insert on any partition should fail
+      val e1 = intercept[Exception] {
+        sql("INSERT INTO T VALUES (3, -50, 'p1')")
+      }
+      Assertions.assertTrue(
+        e1.getMessage.contains("CHECK constraint"),
+        s"Expected CHECK constraint error but got: ${e1.getMessage}")
+
+      val e2 = intercept[Exception] {
+        sql("INSERT INTO T VALUES (4, 0, 'p2')")
+      }
+      Assertions.assertTrue(
+        e2.getMessage.contains("CHECK constraint"),
+        s"Expected CHECK constraint error but got: ${e2.getMessage}")
+
+      // Data should remain unchanged
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 100, "p1") :: Row(2, 200, "p2") :: Nil
+      )
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint with fully qualified catalog table name") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, salary INT, name STRING) USING paimon")
+      sql("ALTER TABLE T ADD CONSTRAINT salary_positive CHECK (salary > 0)")
+
+      // Verify constraint is stored
+      val table = loadTable("T")
+      Assertions.assertTrue(table.options().containsKey("constraint.check.salary_positive"))
+
+      // Valid insert using fully qualified name
+      sql(s"INSERT INTO paimon.$dbName0.T VALUES (1, 100, 'Alice')")
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 100, "Alice") :: Nil
+      )
+
+      // Invalid insert should still be caught
+      val e = intercept[Exception] {
+        sql(s"INSERT INTO paimon.$dbName0.T VALUES (2, -50, 'Bob')")
+      }
+      Assertions.assertTrue(
+        e.getMessage.contains("CHECK constraint"),
+        s"Expected CHECK constraint error but got: ${e.getMessage}")
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint with INSERT INTO SELECT column reorder") {
+    withTable("T", "source") {
+      sql("CREATE TABLE T (id INT, salary INT, name STRING) USING paimon")
+      sql("ALTER TABLE T ADD CONSTRAINT salary_positive CHECK (salary > 0)")
+
+      sql("CREATE TABLE source (name STRING, id INT, salary INT) USING paimon")
+      sql("INSERT INTO source VALUES ('Alice', 1, 100)")
+      sql("INSERT INTO source VALUES ('Bob', 2, -50)")
+
+      // INSERT INTO SELECT with reordered columns - valid data
+      sql("INSERT INTO T SELECT id, salary, name FROM source WHERE salary > 0")
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 100, "Alice") :: Nil
+      )
+
+      // INSERT INTO SELECT with reordered columns - invalid data should fail
+      val e = intercept[Exception] {
+        sql("INSERT INTO T SELECT id, salary, name FROM source WHERE id = 2")
+      }
+      Assertions.assertTrue(
+        e.getMessage.contains("CHECK constraint"),
+        s"Expected CHECK constraint error but got: ${e.getMessage}")
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint persists through table reload") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, salary INT) USING paimon")
+      sql("ALTER TABLE T ADD CONSTRAINT salary_positive CHECK (salary > 0)")
+
+      // Valid insert
+      sql("INSERT INTO T VALUES (1, 100)")
+
+      // Invalidate table cache and verify constraint still works
+      spark.catalog.refreshTable(s"paimon.$dbName0.T")
+
+      // Constraint should still be enforced after reload
+      val e = intercept[Exception] {
+        sql("INSERT INTO T VALUES (2, -50)")
+      }
+      Assertions.assertTrue(
+        e.getMessage.contains("CHECK constraint"),
+        s"Expected CHECK constraint error after reload but got: ${e.getMessage}")
+
+      // Valid insert after reload should still work
+      sql("INSERT INTO T VALUES (3, 200)")
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 100) :: Row(3, 200) :: Nil
+      )
+    }
+  }
+
+  test("Paimon DDL: DROP CHECK constraint with IF EXISTS on non-existing constraint") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, salary INT) USING paimon")
+
+      // DROP CONSTRAINT IF EXISTS should not throw on non-existing constraint
+      sql("ALTER TABLE T DROP CONSTRAINT IF EXISTS non_existing_constraint")
+
+      // DROP CONSTRAINT without IF EXISTS should throw
+      val e = intercept[Exception] {
+        sql("ALTER TABLE T DROP CONSTRAINT non_existing_constraint")
+      }
+      Assertions.assertTrue(
+        e.getMessage.contains("does not exist"),
+        s"Expected 'does not exist' error but got: ${e.getMessage}")
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint with add and then immediate insert") {
+    for (useV2Write <- Seq("true", "false")) {
+      withSparkSQLConf("spark.paimon.write.use-v2-write" -> useV2Write) {
+        withTable("T") {
+          sql("CREATE TABLE T (id INT, salary INT, name STRING) USING paimon")
+
+          // Add constraint and immediately try to insert valid data
+          sql("ALTER TABLE T ADD CONSTRAINT salary_positive CHECK (salary > 0)")
+          sql("INSERT INTO T VALUES (1, 100, 'Alice')")
+
+          // Verify data
+          checkAnswer(
+            sql("SELECT * FROM T ORDER BY id"),
+            Row(1, 100, "Alice") :: Nil
+          )
+
+          // Add a second constraint, then test both are enforced
+          sql("ALTER TABLE T ADD CONSTRAINT name_not_empty CHECK (LENGTH(name) > 0)")
+
+          // Violate first constraint
+          val e1 = intercept[Exception] {
+            sql("INSERT INTO T VALUES (2, -5, 'Bob')")
+          }
+          Assertions.assertTrue(
+            e1.getMessage.contains("CHECK constraint"),
+            s"Expected CHECK constraint error but got: ${e1.getMessage}")
+
+          // Violate second constraint
+          val e2 = intercept[Exception] {
+            sql("INSERT INTO T VALUES (3, 100, '')")
+          }
+          Assertions.assertTrue(
+            e2.getMessage.contains("CHECK constraint"),
+            s"Expected CHECK constraint error but got: ${e2.getMessage}")
+
+          // Both constraints satisfied
+          sql("INSERT INTO T VALUES (4, 200, 'Charlie')")
+          checkAnswer(
+            sql("SELECT * FROM T ORDER BY id"),
+            Row(1, 100, "Alice") :: Row(4, 200, "Charlie") :: Nil
+          )
+        }
+      }
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint enforcement on UPDATE") {
+    withTable("T") {
+      sql("""CREATE TABLE T (id INT, salary INT, name STRING) USING paimon
+            |TBLPROPERTIES ('primary-key' = 'id')
+            |""".stripMargin)
+      sql("ALTER TABLE T ADD CONSTRAINT salary_positive CHECK (salary > 0)")
+
+      // Insert valid data
+      sql("INSERT INTO T VALUES (1, 100, 'Alice'), (2, 200, 'Bob')")
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 100, "Alice") :: Row(2, 200, "Bob") :: Nil
+      )
+
+      // UPDATE that keeps data valid should succeed
+      sql("UPDATE T SET salary = 300 WHERE id = 1")
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 300, "Alice") :: Row(2, 200, "Bob") :: Nil
+      )
+
+      // UPDATE that violates constraint should fail
+      val e1 = intercept[Exception] {
+        sql("UPDATE T SET salary = 0 WHERE id = 1")
+      }
+      Assertions.assertTrue(
+        e1.getMessage.contains("CHECK constraint"),
+        s"Expected CHECK constraint error but got: ${e1.getMessage}")
+
+      // UPDATE with negative salary should fail
+      val e2 = intercept[Exception] {
+        sql("UPDATE T SET salary = -50 WHERE id = 2")
+      }
+      Assertions.assertTrue(
+        e2.getMessage.contains("CHECK constraint"),
+        s"Expected CHECK constraint error but got: ${e2.getMessage}")
+
+      // Data should remain unchanged after failed updates
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 300, "Alice") :: Row(2, 200, "Bob") :: Nil
+      )
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint enforcement on MERGE INTO") {
+    withTable("T", "source") {
+      sql("""CREATE TABLE T (id INT, salary INT, name STRING) USING paimon
+            |TBLPROPERTIES ('primary-key' = 'id')
+            |""".stripMargin)
+      sql("ALTER TABLE T ADD CONSTRAINT salary_positive CHECK (salary > 0)")
+
+      sql("INSERT INTO T VALUES (1, 100, 'Alice'), (2, 200, 'Bob')")
+
+      sql("CREATE TABLE source (id INT, salary INT, name STRING) USING paimon")
+
+      // MERGE INSERT with valid data should succeed
+      sql("INSERT INTO source VALUES (3, 300, 'Charlie')")
+      sql("""MERGE INTO T
+            |USING source AS s ON T.id = s.id
+            |WHEN NOT MATCHED THEN INSERT *
+            |""".stripMargin)
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 100, "Alice") :: Row(2, 200, "Bob") :: Row(3, 300, "Charlie") :: Nil
+      )
+
+      // MERGE INSERT with invalid data should fail
+      sql("DELETE FROM source WHERE true")
+      sql("INSERT INTO source VALUES (4, -50, 'Dave')")
+      val e1 = intercept[Exception] {
+        sql("""MERGE INTO T
+              |USING source AS s ON T.id = s.id
+              |WHEN NOT MATCHED THEN INSERT *
+              |""".stripMargin)
+      }
+      Assertions.assertTrue(
+        e1.getMessage.contains("CHECK constraint"),
+        s"Expected CHECK constraint error on MERGE INSERT but got: ${e1.getMessage}")
+
+      // MERGE UPDATE with valid data should succeed
+      sql("DELETE FROM source WHERE true")
+      sql("INSERT INTO source VALUES (1, 500, 'Alice Updated')")
+      sql("""MERGE INTO T
+            |USING source AS s ON T.id = s.id
+            |WHEN MATCHED THEN UPDATE SET salary = s.salary, name = s.name
+            |""".stripMargin)
+      checkAnswer(
+        sql("SELECT * FROM T WHERE id = 1"),
+        Row(1, 500, "Alice Updated") :: Nil
+      )
+
+      // MERGE UPDATE with invalid data should fail
+      sql("DELETE FROM source WHERE true")
+      sql("INSERT INTO source VALUES (2, -100, 'Bob Bad')")
+      val e2 = intercept[Exception] {
+        sql("""MERGE INTO T
+              |USING source AS s ON T.id = s.id
+              |WHEN MATCHED THEN UPDATE SET salary = s.salary, name = s.name
+              |""".stripMargin)
+      }
+      Assertions.assertTrue(
+        e2.getMessage.contains("CHECK constraint"),
+        s"Expected CHECK constraint error on MERGE UPDATE but got: ${e2.getMessage}")
+
+      // Data should remain unchanged after failed MERGE operations
+      checkAnswer(
+        sql("SELECT * FROM T ORDER BY id"),
+        Row(1, 500, "Alice Updated") :: Row(2, 200, "Bob") :: Row(3, 300, "Charlie") :: Nil
+      )
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint enforcement with Streaming Write - valid data") {
+    withSparkSQLConf("spark.paimon.write.use-v2-write" -> "true") {
+      withTable("T") {
+        sql("CREATE TABLE T (id INT, value INT) USING paimon")
+        sql("ALTER TABLE T ADD CONSTRAINT value_positive CHECK (value > 0)")
+
+        withTempDir {
+          checkpointDir =>
+            val inputData = MemoryStream[(Int, Int)]
+            val stream = inputData
+              .toDS()
+              .toDF("id", "value")
+              .writeStream
+              .option("checkpointLocation", checkpointDir.getCanonicalPath)
+              .format("paimon")
+              .toTable("T")
+
+            try {
+              inputData.addData((1, 100), (2, 200))
+              stream.processAllAvailable()
+
+              checkAnswer(
+                sql("SELECT * FROM T ORDER BY id"),
+                Row(1, 100) :: Row(2, 200) :: Nil
+              )
+            } finally {
+              stream.stop()
+            }
+        }
+      }
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint violation in Streaming Write fails") {
+    withSparkSQLConf("spark.paimon.write.use-v2-write" -> "true") {
+      withTable("T") {
+        sql("CREATE TABLE T (id INT, value INT) USING paimon")
+        sql("ALTER TABLE T ADD CONSTRAINT value_positive CHECK (value > 0)")
+
+        withTempDir {
+          checkpointDir =>
+            val inputData = MemoryStream[(Int, Int)]
+            val stream = inputData
+              .toDS()
+              .toDF("id", "value")
+              .writeStream
+              .option("checkpointLocation", checkpointDir.getCanonicalPath)
+              .format("paimon")
+              .toTable("T")
+
+            try {
+              inputData.addData((1, -100), (2, -200))
+              val e = intercept[StreamingQueryException] {
+                stream.processAllAvailable()
+              }
+              Assertions.assertTrue(
+                e.getMessage.contains("CHECK constraint"),
+                s"Expected CHECK constraint error but got: ${e.getMessage}")
+            } finally {
+              stream.stop()
+            }
+        }
+      }
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint RENAME COLUMN updates constraint expression") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, salary INT) USING paimon")
+      sql("ALTER TABLE T ADD CONSTRAINT salary_positive CHECK (salary > 0)")
+
+      // Verify original constraint
+      val options1 = loadTable("T").options()
+      Assertions.assertEquals("salary > 0", options1.get("constraint.check.salary_positive"))
+
+      // Rename the column referenced by the constraint
+      sql("ALTER TABLE T RENAME COLUMN salary TO income")
+
+      // Verify constraint expression was updated
+      val options2 = loadTable("T").options()
+      Assertions.assertEquals("income > 0", options2.get("constraint.check.salary_positive"))
+
+      // Verify constraint still works with the new column name
+      sql("INSERT INTO T VALUES (1, 100)")
+      val e = intercept[Exception] {
+        sql("INSERT INTO T VALUES (2, -50)")
+      }
+      Assertions.assertTrue(
+        e.getMessage.contains("CHECK constraint"),
+        s"Expected CHECK constraint error but got: ${e.getMessage}")
+
+      checkAnswer(sql("SELECT * FROM T ORDER BY id"), Row(1, 100) :: Nil)
+    }
+  }
+
+  test("Paimon DDL: DROP COLUMN referenced by CHECK constraint is blocked") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, salary INT, name STRING) USING paimon")
+      sql("ALTER TABLE T ADD CONSTRAINT salary_positive CHECK (salary > 0)")
+
+      // Dropping the column referenced by constraint should fail
+      val e = intercept[Exception] {
+        sql("ALTER TABLE T DROP COLUMN salary")
+      }
+      Assertions.assertTrue(
+        e.getMessage.contains("Cannot drop column") &&
+          e.getMessage.contains("salary_positive"),
+        s"Expected constraint reference error but got: ${e.getMessage}"
+      )
+
+      // Dropping non-referenced column should succeed
+      sql("ALTER TABLE T DROP COLUMN name")
+
+      // Verify table schema after dropping non-referenced column
+      val schema = spark.table("T").schema
+      Assertions.assertEquals(2, schema.size)
+
+      // Drop constraint first, then drop column should succeed
+      sql("ALTER TABLE T DROP CONSTRAINT salary_positive")
+      sql("ALTER TABLE T DROP COLUMN salary")
+
+      // Verify final schema
+      val finalSchema = spark.table("T").schema
+      Assertions.assertEquals(1, finalSchema.size)
+      Assertions.assertEquals("id", finalSchema.head.name)
+    }
+  }
+
+  test("Paimon DDL: CHECK constraint RENAME nested COLUMN updates constraint expression") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, info STRUCT<age: INT, name: STRING>) USING paimon")
+      sql("ALTER TABLE T ADD CONSTRAINT age_positive CHECK (info.age > 0)")
+
+      // Verify original constraint
+      val options1 = loadTable("T").options()
+      Assertions.assertEquals("info.age > 0", options1.get("constraint.check.age_positive"))
+
+      // Rename the nested column referenced by the constraint
+      sql("ALTER TABLE T RENAME COLUMN info.age TO user_age")
+
+      // Verify constraint expression was updated
+      val options2 = loadTable("T").options()
+      Assertions.assertEquals("info.user_age > 0", options2.get("constraint.check.age_positive"))
+
+      // Verify constraint still works with the new column name
+      sql("INSERT INTO T VALUES (1, struct(25, 'Alice'))")
+      val e = intercept[Exception] {
+        sql("INSERT INTO T VALUES (2, struct(-5, 'Bob'))")
+      }
+      Assertions.assertTrue(
+        e.getMessage.contains("CHECK constraint"),
+        s"Expected CHECK constraint error but got: ${e.getMessage}")
+
+      checkAnswer(sql("SELECT * FROM T ORDER BY id"), Row(1, Row(25, "Alice")) :: Nil)
+    }
+  }
+
+  test("Paimon DDL: DROP nested COLUMN referenced by CHECK constraint is blocked") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, pay STRUCT<salary: INT, bonus: INT>) USING paimon")
+      sql("ALTER TABLE T ADD CONSTRAINT salary_positive CHECK (pay.salary > 0)")
+
+      // Dropping the nested column referenced by constraint should fail
+      val e = intercept[Exception] {
+        sql("ALTER TABLE T DROP COLUMN pay.salary")
+      }
+      Assertions.assertTrue(
+        e.getMessage.contains("Cannot drop column") &&
+          e.getMessage.contains("salary_positive"),
+        s"Expected constraint reference error but got: ${e.getMessage}"
+      )
+
+      // Dropping non-referenced nested column should succeed
+      sql("ALTER TABLE T DROP COLUMN pay.bonus")
+
+      // Constraint should still be enforced
+      sql("INSERT INTO T VALUES (1, struct(100))")
+      val e2 = intercept[Exception] {
+        sql("INSERT INTO T VALUES (2, struct(-50))")
+      }
+      Assertions.assertTrue(
+        e2.getMessage.contains("CHECK constraint"),
+        s"Expected CHECK constraint error but got: ${e2.getMessage}")
+
+      checkAnswer(sql("SELECT * FROM T ORDER BY id"), Row(1, Row(100)) :: Nil)
+    }
+  }
+
+  test("Paimon DDL: DROP parent COLUMN of CHECK constraint nested reference is blocked") {
+    withTable("T") {
+      sql("CREATE TABLE T (id INT, info STRUCT<val: INT, tag: STRING>, extra STRING) USING paimon")
+      sql("ALTER TABLE T ADD CONSTRAINT val_check CHECK (info.val > 0)")
+
+      // Dropping top-level parent column 'info' should be blocked
+      // because the constraint references 'info.val' which contains 'info'
+      val e = intercept[Exception] {
+        sql("ALTER TABLE T DROP COLUMN info")
+      }
+      Assertions.assertTrue(
+        e.getMessage.contains("Cannot drop column") &&
+          e.getMessage.contains("val_check"),
+        s"Expected constraint reference error but got: ${e.getMessage}"
+      )
+
+      // Dropping unrelated column should succeed
+      sql("ALTER TABLE T DROP COLUMN extra")
     }
   }
 }

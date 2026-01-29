@@ -40,6 +40,7 @@ case class UpdatePaimonTableCommand(
     condition: Expression,
     alignedExpressions: Seq[(Expression, Attribute)])
   extends PaimonRowLevelCommand
+  with CheckConstraintHelper
   with SupportsSubquery {
 
   private lazy val updateExpressions = alignedExpressions.map {
@@ -47,6 +48,8 @@ case class UpdatePaimonTableCommand(
   }
 
   override def run(sparkSession: SparkSession): Seq[Row] = {
+    // Validate check constraints on updated data before writing
+    validateUpdateConstraints(sparkSession)
 
     val commitMessages = if (withPrimaryKeys) {
       performUpdateForPkTable(sparkSession)
@@ -56,6 +59,12 @@ case class UpdatePaimonTableCommand(
     writer.commit(commitMessages, Snapshot.Operation.UPDATE)
 
     Seq.empty[Row]
+  }
+
+  private def validateUpdateConstraints(sparkSession: SparkSession): Unit = {
+    val updatedPlan = Project(updateExpressions, Filter(condition, relation))
+    val updatedDF = createDataset(sparkSession, updatedPlan)
+    validateCheckConstraints(table, updatedDF)
   }
 
   /** Update for table with primary keys */

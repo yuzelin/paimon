@@ -50,6 +50,7 @@ public class PaimonV2MetadataAwareDataWriter extends PaimonV2DataWriter {
                 dataSchema,
                 coreOptions,
                 catalogContext,
+                PaimonV2DataWriter$.MODULE$.emptyBoundConstraints(),
                 Option.empty(),
                 Option.apply(paimonWriteType),
                 Option.apply(metadataSchema),

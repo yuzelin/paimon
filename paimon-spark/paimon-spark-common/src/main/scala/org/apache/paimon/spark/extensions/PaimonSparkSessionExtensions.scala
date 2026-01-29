@@ -48,6 +48,8 @@ class PaimonSparkSessionExtensions extends (SparkSessionExtensions => Unit) {
 
     extensions.injectPostHocResolutionRule(spark => ReplacePaimonFunctions(spark))
     extensions.injectPostHocResolutionRule(spark => PaimonPostHocResolutionRules(spark))
+    extensions.injectPostHocResolutionRule(
+      spark => SparkShimLoader.shim.createAlterColumnNullabilityRule(spark))
 
     extensions.injectPostHocResolutionRule(_ => PaimonUpdateTable)
     extensions.injectPostHocResolutionRule(_ => PaimonDeleteTable)

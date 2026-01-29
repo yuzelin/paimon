@@ -921,6 +921,233 @@ public class SchemaManagerTest {
     }
 
     @Test
+    public void testRenameNestedColumnUpdatesCheckConstraint() throws Exception {
+        // Create table: struct_col STRUCT<age INT, name STRING>
+        RowType innerType =
+                RowType.of(
+                        new DataField(2, "age", DataTypes.INT()),
+                        new DataField(3, "name", DataTypes.STRING()));
+        RowType outerType =
+                RowType.of(
+                        new DataField(0, "id", DataTypes.INT()),
+                        new DataField(1, "info", innerType));
+
+        Map<String, String> opts = new HashMap<>();
+        opts.put("constraint.check.age_positive", "info.age > 0");
+        Schema testSchema =
+                new Schema(
+                        outerType.getFields(),
+                        Collections.emptyList(),
+                        Collections.emptyList(),
+                        opts,
+                        "");
+        SchemaManager mgr = new SchemaManager(LocalFileIO.create(), path);
+        mgr.createTable(testSchema);
+
+        // Rename nested column: info.age -> info.user_age
+        mgr.commitChanges(SchemaChange.renameColumn(new String[] {"info", "age"}, "user_age"));
+
+        TableSchema latest = mgr.latest().get();
+        // Constraint expression should be updated
+        assertThat(latest.options().get("constraint.check.age_positive"))
+                .isEqualTo("info.user_age > 0");
+    }
+
+    @Test
+    public void testRenameNestedColumnUpdatesBacktickConstraint() throws Exception {
+        RowType innerType =
+                RowType.of(
+                        new DataField(2, "val", DataTypes.INT()),
+                        new DataField(3, "tag", DataTypes.STRING()));
+        RowType outerType =
+                RowType.of(
+                        new DataField(0, "id", DataTypes.INT()),
+                        new DataField(1, "data", innerType));
+
+        Map<String, String> opts = new HashMap<>();
+        opts.put("constraint.check.val_check", "`data`.`val` > 0");
+        Schema testSchema =
+                new Schema(
+                        outerType.getFields(),
+                        Collections.emptyList(),
+                        Collections.emptyList(),
+                        opts,
+                        "");
+        SchemaManager mgr = new SchemaManager(LocalFileIO.create(), path);
+        mgr.createTable(testSchema);
+
+        // Rename nested column: data.val -> data.amount
+        mgr.commitChanges(SchemaChange.renameColumn(new String[] {"data", "val"}, "amount"));
+
+        TableSchema latest = mgr.latest().get();
+        // Backtick-quoted constraint expression should be updated
+        assertThat(latest.options().get("constraint.check.val_check"))
+                .isEqualTo("`data`.`amount` > 0");
+    }
+
+    @Test
+    public void testRenameNestedColumnDoesNotAffectSiblings() throws Exception {
+        RowType innerType =
+                RowType.of(
+                        new DataField(2, "age", DataTypes.INT()),
+                        new DataField(3, "age_limit", DataTypes.INT()));
+        RowType outerType =
+                RowType.of(
+                        new DataField(0, "id", DataTypes.INT()),
+                        new DataField(1, "info", innerType));
+
+        Map<String, String> opts = new HashMap<>();
+        // Constraint references info.age_limit, not info.age
+        opts.put("constraint.check.limit_check", "info.age_limit < 200");
+        Schema testSchema =
+                new Schema(
+                        outerType.getFields(),
+                        Collections.emptyList(),
+                        Collections.emptyList(),
+                        opts,
+                        "");
+        SchemaManager mgr = new SchemaManager(LocalFileIO.create(), path);
+        mgr.createTable(testSchema);
+
+        // Rename info.age -> info.user_age (should NOT affect info.age_limit in expression)
+        mgr.commitChanges(SchemaChange.renameColumn(new String[] {"info", "age"}, "user_age"));
+
+        TableSchema latest = mgr.latest().get();
+        // Constraint referencing info.age_limit should be unchanged
+        assertThat(latest.options().get("constraint.check.limit_check"))
+                .isEqualTo("info.age_limit < 200");
+    }
+
+    @Test
+    public void testDropNestedColumnReferencedByConstraintIsBlocked() throws Exception {
+        RowType innerType =
+                RowType.of(
+                        new DataField(2, "salary", DataTypes.INT()),
+                        new DataField(3, "bonus", DataTypes.INT()));
+        RowType outerType =
+                RowType.of(
+                        new DataField(0, "id", DataTypes.INT()),
+                        new DataField(1, "pay", innerType));
+
+        Map<String, String> opts = new HashMap<>();
+        opts.put("constraint.check.salary_positive", "pay.salary > 0");
+        Schema testSchema =
+                new Schema(
+                        outerType.getFields(),
+                        Collections.emptyList(),
+                        Collections.emptyList(),
+                        opts,
+                        "");
+        SchemaManager mgr = new SchemaManager(LocalFileIO.create(), path);
+        mgr.createTable(testSchema);
+
+        // Drop nested column referenced by constraint should fail
+        assertThatThrownBy(
+                        () ->
+                                mgr.commitChanges(
+                                        SchemaChange.dropColumn(new String[] {"pay", "salary"})))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("Cannot drop column [pay.salary]")
+                .hasMessageContaining("salary_positive");
+    }
+
+    @Test
+    public void testDropNestedColumnNotReferencedByConstraintSucceeds() throws Exception {
+        RowType innerType =
+                RowType.of(
+                        new DataField(2, "salary", DataTypes.INT()),
+                        new DataField(3, "bonus", DataTypes.INT()));
+        RowType outerType =
+                RowType.of(
+                        new DataField(0, "id", DataTypes.INT()),
+                        new DataField(1, "pay", innerType));
+
+        Map<String, String> opts = new HashMap<>();
+        opts.put("constraint.check.salary_positive", "pay.salary > 0");
+        Schema testSchema =
+                new Schema(
+                        outerType.getFields(),
+                        Collections.emptyList(),
+                        Collections.emptyList(),
+                        opts,
+                        "");
+        SchemaManager mgr = new SchemaManager(LocalFileIO.create(), path);
+        mgr.createTable(testSchema);
+
+        // Drop pay.bonus should succeed (not referenced by constraint)
+        mgr.commitChanges(SchemaChange.dropColumn(new String[] {"pay", "bonus"}));
+
+        TableSchema latest = mgr.latest().get();
+        assertThat(latest.options().get("constraint.check.salary_positive"))
+                .isEqualTo("pay.salary > 0");
+    }
+
+    @Test
+    public void testDropParentColumnOfConstraintReferenceIsBlocked() throws Exception {
+        RowType innerType =
+                RowType.of(
+                        new DataField(3, "val", DataTypes.INT()),
+                        new DataField(4, "tag", DataTypes.STRING()));
+        RowType outerType =
+                RowType.of(
+                        new DataField(0, "id", DataTypes.INT()),
+                        new DataField(1, "info", innerType),
+                        new DataField(2, "extra", DataTypes.STRING()));
+
+        Map<String, String> opts = new HashMap<>();
+        opts.put("constraint.check.val_check", "info.val > 0");
+        Schema testSchema =
+                new Schema(
+                        outerType.getFields(),
+                        Collections.emptyList(),
+                        Collections.emptyList(),
+                        opts,
+                        "");
+        SchemaManager mgr = new SchemaManager(LocalFileIO.create(), path);
+        mgr.createTable(testSchema);
+
+        // Drop top-level parent column 'info' should also be blocked
+        // because the constraint references 'info.val' which contains 'info'
+        assertThatThrownBy(() -> mgr.commitChanges(SchemaChange.dropColumn(new String[] {"info"})))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("Cannot drop column [info]")
+                .hasMessageContaining("val_check");
+    }
+
+    @Test
+    public void testNestedRenameFollowedByDropInSameBatch() throws Exception {
+        RowType innerType =
+                RowType.of(
+                        new DataField(2, "a", DataTypes.INT()),
+                        new DataField(3, "b", DataTypes.INT()));
+        RowType outerType =
+                RowType.of(
+                        new DataField(0, "id", DataTypes.INT()), new DataField(1, "s", innerType));
+
+        Map<String, String> opts = new HashMap<>();
+        opts.put("constraint.check.a_check", "s.a > 0");
+        Schema testSchema =
+                new Schema(
+                        outerType.getFields(),
+                        Collections.emptyList(),
+                        Collections.emptyList(),
+                        opts,
+                        "");
+        SchemaManager mgr = new SchemaManager(LocalFileIO.create(), path);
+        mgr.createTable(testSchema);
+
+        // Rename s.a -> s.c, then try to drop s.c (which is now the renamed column)
+        assertThatThrownBy(
+                        () ->
+                                mgr.commitChanges(
+                                        SchemaChange.renameColumn(new String[] {"s", "a"}, "c"),
+                                        SchemaChange.dropColumn(new String[] {"s", "c"})))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("Cannot drop column [s.c]")
+                .hasMessageContaining("a_check");
+    }
+
+    @Test
     public void testAlterDeletionVectorsMode() throws Exception {
         // create table
         Schema schema =

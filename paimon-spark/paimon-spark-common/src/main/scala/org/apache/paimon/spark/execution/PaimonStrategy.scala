@@ -26,7 +26,7 @@ import org.apache.paimon.predicate.{Predicate, PredicateBuilder}
 import org.apache.paimon.spark.{PaimonRecordReaderIterator, SparkCatalog, SparkGenericCatalog, SparkTable, SparkUtils}
 import org.apache.paimon.spark.catalog.{SparkBaseCatalog, SupportView}
 import org.apache.paimon.spark.catalyst.analysis.ResolvedPaimonView
-import org.apache.paimon.spark.catalyst.plans.logical.{CopyIntoLocationCommand, CopyIntoLocationSource, CopyIntoTableCommand, CreateOrReplaceTagCommand, CreatePaimonView, DeleteTagCommand, DropPaimonView, LateralVectorSearch, PaimonCallCommand, PaimonDropPartitions, PaimonTableValuedFunctions, RenameTagCommand, ResolvedIdentifier, ShowPaimonViews, ShowTagsCommand, TruncatePaimonTableWithFilter}
+import org.apache.paimon.spark.catalyst.plans.logical.{AddCheckConstraintCommand, CopyIntoLocationCommand, CopyIntoLocationSource, CopyIntoTableCommand, CreateOrReplaceTagCommand, CreatePaimonView, DeleteTagCommand, DropCheckConstraintCommand, DropPaimonView, LateralVectorSearch, PaimonCallCommand, PaimonDropPartitions, PaimonTableValuedFunctions, RenameTagCommand, ResolvedIdentifier, ShowPaimonViews, ShowTagsCommand, TruncatePaimonTableWithFilter}
 import org.apache.paimon.spark.data.SparkInternalRow
 import org.apache.paimon.spark.read.VectorSearchResultUtils
 import org.apache.paimon.spark.schema.PaimonMetadataColumn
@@ -106,6 +106,18 @@ case class PaimonStrategy(spark: SparkSession)
 
     case RenameTagCommand(PaimonCatalogAndIdentifier(catalog, ident), sourceTag, targetTag) =>
       RenameTagExec(catalog, ident, sourceTag, targetTag) :: Nil
+
+    case AddCheckConstraintCommand(
+          PaimonCatalogAndIdentifier(catalog, ident),
+          constraintName,
+          expression) =>
+      AddCheckConstraintExec(catalog, ident, constraintName, expression) :: Nil
+
+    case DropCheckConstraintCommand(
+          PaimonCatalogAndIdentifier(catalog, ident),
+          constraintName,
+          ifExists) =>
+      DropCheckConstraintExec(catalog, ident, constraintName, ifExists) :: Nil
 
     case CreatePaimonView(
           ResolvedIdentifier(viewCatalog: SupportView, ident),

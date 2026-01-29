@@ -20,6 +20,7 @@ package org.apache.paimon.spark.write
 
 import org.apache.paimon.Snapshot
 import org.apache.paimon.io.{CompactIncrement, DataFileMeta, DataIncrement}
+import org.apache.paimon.schema.SchemaManager
 import org.apache.paimon.spark.SparkTypeUtils
 import org.apache.paimon.spark.catalyst.Compatibility
 import org.apache.paimon.spark.commands.SparkDataFileMeta
@@ -30,6 +31,8 @@ import org.apache.paimon.table.{FileStoreTable, SpecialFields}
 import org.apache.paimon.table.sink.{BatchWriteBuilder, CommitMessage, CommitMessageImpl}
 
 import org.apache.spark.sql.PaimonSparkSession
+import org.apache.spark.sql.catalyst.expressions.{Alias, AttributeReference, BindReferences, Expression}
+import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, Project}
 import org.apache.spark.sql.connector.write.{DataWriterFactory, PhysicalWriteInfo, WriterCommitMessage}
 import org.apache.spark.sql.connector.write.streaming.StreamingDataWriterFactory
 import org.apache.spark.sql.execution.SQLExecution
@@ -64,6 +67,56 @@ abstract class PaimonBatchWriteBase(
 
   protected val metricRegistry = SparkMetricRegistry()
 
+  /**
+   * Get all check constraints from the latest schema (to ensure we have the most recent
+   * constraints).
+   */
+  private val checkConstraints: Map[String, String] = {
+    val prefix = SchemaManager.CHECK_CONSTRAINT_PREFIX
+    // Use schemaManager to get the latest schema to ensure we have up-to-date constraints
+    // This is necessary because the table object may be cached and not reflect recent ALTER TABLE changes
+    val latestSchema = table.schemaManager().latest()
+    val latestOptions =
+      if (latestSchema.isPresent) latestSchema.get().options() else table.options()
+    val constraints = latestOptions.asScala
+      .filter { case (key, _) => key.startsWith(prefix) }
+      .map { case (key, value) => (key.substring(prefix.length), value) }
+      .toMap
+    logInfo(
+      s"PaimonBatchWrite: Found ${constraints.size} check constraints for table ${table.name()}")
+    if (constraints.nonEmpty) {
+      logInfo(s"PaimonBatchWrite: Constraints: $constraints")
+    }
+    constraints
+  }
+
+  /**
+   * Resolve and bind constraint expressions on the driver side. This avoids needing SparkSession on
+   * executors where PaimonV2DataWriter runs.
+   *
+   * NOTE: Expressions are bound against writeSchema (not dataSchema) because the incoming records
+   * in PaimonV2DataWriter.write() are in writeSchema format. Using dataSchema ordinals would cause
+   * incorrect column access when writeSchema differs from dataSchema (e.g., after schema merge).
+   */
+  private val boundConstraintExprs: Seq[(String, String, Expression)] = {
+    if (checkConstraints.isEmpty) {
+      Seq.empty
+    } else {
+      val spark = PaimonSparkSession.active
+      val attrs =
+        writeSchema.map(field => AttributeReference(field.name, field.dataType, field.nullable)())
+      checkConstraints.map {
+        case (name, exprStr) =>
+          val parsed = spark.sessionState.sqlParser.parseExpression(exprStr)
+          val plan = spark.sessionState.analyzer.execute(
+            Project(Seq(Alias(parsed, "result")()), LocalRelation(attrs)))
+          val resolved = plan.expressions.head.children.head
+          val bound = BindReferences.bindReference(resolved, attrs)
+          (name, exprStr, bound)
+      }.toSeq
+    }
+  }
+
   @volatile protected var commitStarted: Boolean = false
 
   protected val batchWriteBuilder: BatchWriteBuilder = {
@@ -95,7 +148,8 @@ abstract class PaimonBatchWriteBase(
             writeSchema,
             dataSchema,
             coreOptions,
-            catalogContextForBlobDescriptor)
+            catalogContextForBlobDescriptor,
+            boundConstraintExprs)
         }
       }
   }
@@ -122,6 +176,7 @@ abstract class PaimonBatchWriteBase(
           dataSchema,
           coreOptions,
           catalogContextForBlobDescriptor,
+          boundConstraintExprs,
           Some(epochId))
       }
   }

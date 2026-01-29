@@ -81,6 +81,12 @@ import java.util.Objects;
     @JsonSubTypes.Type(
             value = SchemaChange.DropPrimaryKey.class,
             name = SchemaChange.Actions.DROP_PRIMARY_KEY_ACTION),
+    @JsonSubTypes.Type(
+            value = SchemaChange.AddCheckConstraint.class,
+            name = SchemaChange.Actions.ADD_CHECK_CONSTRAINT_ACTION),
+    @JsonSubTypes.Type(
+            value = SchemaChange.DropCheckConstraint.class,
+            name = SchemaChange.Actions.DROP_CHECK_CONSTRAINT_ACTION),
 })
 public interface SchemaChange extends Serializable {
 
@@ -169,6 +175,14 @@ public interface SchemaChange extends Serializable {
 
     static SchemaChange dropPrimaryKey() {
         return new DropPrimaryKey();
+    }
+
+    static SchemaChange addCheckConstraint(String constraintName, String expression) {
+        return new AddCheckConstraint(constraintName, expression);
+    }
+
+    static SchemaChange dropCheckConstraint(String constraintName) {
+        return new DropCheckConstraint(constraintName);
     }
 
     /** A SchemaChange to set a table option. */
@@ -836,6 +850,94 @@ public interface SchemaChange extends Serializable {
         }
     }
 
+    /** A SchemaChange to add a check constraint. */
+    final class AddCheckConstraint implements SchemaChange {
+
+        private static final long serialVersionUID = 1L;
+
+        private static final String FIELD_CONSTRAINT_NAME = "constraintName";
+        private static final String FIELD_EXPRESSION = "expression";
+
+        @JsonProperty(FIELD_CONSTRAINT_NAME)
+        private final String constraintName;
+
+        @JsonProperty(FIELD_EXPRESSION)
+        private final String expression;
+
+        @JsonCreator
+        private AddCheckConstraint(
+                @JsonProperty(FIELD_CONSTRAINT_NAME) String constraintName,
+                @JsonProperty(FIELD_EXPRESSION) String expression) {
+            this.constraintName = Objects.requireNonNull(constraintName, "constraintName");
+            this.expression = Objects.requireNonNull(expression, "expression");
+        }
+
+        @JsonGetter(FIELD_CONSTRAINT_NAME)
+        public String constraintName() {
+            return constraintName;
+        }
+
+        @JsonGetter(FIELD_EXPRESSION)
+        public String expression() {
+            return expression;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            AddCheckConstraint that = (AddCheckConstraint) o;
+            return constraintName.equals(that.constraintName) && expression.equals(that.expression);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(constraintName, expression);
+        }
+    }
+
+    /** A SchemaChange to drop a check constraint. */
+    final class DropCheckConstraint implements SchemaChange {
+
+        private static final long serialVersionUID = 1L;
+
+        private static final String FIELD_CONSTRAINT_NAME = "constraintName";
+
+        @JsonProperty(FIELD_CONSTRAINT_NAME)
+        private final String constraintName;
+
+        @JsonCreator
+        private DropCheckConstraint(@JsonProperty(FIELD_CONSTRAINT_NAME) String constraintName) {
+            this.constraintName = Objects.requireNonNull(constraintName, "constraintName");
+        }
+
+        @JsonGetter(FIELD_CONSTRAINT_NAME)
+        public String constraintName() {
+            return constraintName;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            DropCheckConstraint that = (DropCheckConstraint) o;
+            return constraintName.equals(that.constraintName);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(constraintName);
+        }
+    }
+
     /** Actions for schema changes： identify for schema change. */
     class Actions {
         public static final String FIELD_ACTION = "action";
@@ -851,6 +953,8 @@ public interface SchemaChange extends Serializable {
         public static final String UPDATE_COLUMN_DEFAULT_VALUE_ACTION = "updateColumnDefaultValue";
         public static final String UPDATE_COLUMN_POSITION_ACTION = "updateColumnPosition";
         public static final String DROP_PRIMARY_KEY_ACTION = "dropPrimaryKey";
+        public static final String ADD_CHECK_CONSTRAINT_ACTION = "addCheckConstraint";
+        public static final String DROP_CHECK_CONSTRAINT_ACTION = "dropCheckConstraint";
 
         private Actions() {}
     }

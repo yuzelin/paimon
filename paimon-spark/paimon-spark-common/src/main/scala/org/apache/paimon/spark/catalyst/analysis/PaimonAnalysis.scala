@@ -274,7 +274,7 @@ case class PaimonPostHocResolutionRules(session: SparkSession) extends Rule[Logi
       plan.transformDown { case PaimonHiveDynamicPartitionQuery(_, child) => child }
     }
 
-    withoutHiveDynamicPartitionMarkers match {
+    withoutHiveDynamicPartitionMarkers.resolveOperatorsDown {
       case a @ AnalyzeTable(
             ResolvedTable(catalog, identifier, table: SparkTable, _),
             partitionSpec,
@@ -297,8 +297,6 @@ case class PaimonPostHocResolutionRules(session: SparkSession) extends Rule[Logi
             columnNames,
             allColumns) if a.resolved =>
         PaimonAnalyzeTableColumnCommand(catalog, identifier, table, columnNames, allColumns)
-
-      case _ => withoutHiveDynamicPartitionMarkers
     }
   }
 }
