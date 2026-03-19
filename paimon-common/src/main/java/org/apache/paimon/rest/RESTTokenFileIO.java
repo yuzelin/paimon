@@ -39,6 +39,7 @@ import org.apache.paimon.shade.caffeine2.com.github.benmanes.caffeine.cache.Sche
 import org.apache.paimon.shade.guava30.com.google.common.collect.ImmutableMap;
 import org.apache.paimon.shade.guava30.com.google.common.collect.Maps;
 
+import org.apache.hadoop.conf.Configuration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,6 +53,8 @@ import static org.apache.paimon.options.CatalogOptions.FILE_IO_ALLOW_CACHE;
 import static org.apache.paimon.rest.RESTApi.TOKEN_EXPIRATION_SAFE_TIME_MILLIS;
 import static org.apache.paimon.rest.RESTCatalogOptions.DLF_OSS_ENDPOINT;
 import static org.apache.paimon.rest.RESTCatalogOptions.IO_CACHE_ENABLED;
+import static org.apache.paimon.rest.RESTCatalogOptions.IO_CACHE_POLICY;
+import static org.apache.paimon.rest.RESTCatalogOptions.IO_CACHE_WHITELIST_PATH;
 
 /** A {@link FileIO} to support getting token from REST Server. */
 public class RESTTokenFileIO implements FileIO {
@@ -241,9 +244,38 @@ public class RESTTokenFileIO implements FileIO {
         if (dlfOssEndpoint != null && !dlfOssEndpoint.isEmpty()) {
             newToken.put("fs.oss.endpoint", dlfOssEndpoint);
         }
-        if (catalogOptions.contains(IO_CACHE_ENABLED)) {
+
+        String cacheAddrKey = "fs.jindocache.namespace.rpc.address";
+        String sparkCacheKey = "spark.emr.serverless.cache.enabled";
+        Configuration hadoopConf = catalogContext.hadoopConf();
+
+        Boolean dlfCacheEnabled = catalogOptions.get(IO_CACHE_ENABLED);
+        String dlfCacheAddr = token.getOrDefault(cacheAddrKey, "");
+        String dlfCachePolicy = token.getOrDefault(IO_CACHE_POLICY.key(), "none");
+        Boolean sparkCacheEnabled = hadoopConf.getBoolean(sparkCacheKey, false);
+        String sparkCacheAddr = hadoopConf.get("spark.hadoop." + cacheAddrKey, "");
+        if (dlfCacheEnabled && sparkCacheEnabled) {
+            throw new IllegalArgumentException(
+                    "Detect two cache engine both enabled, must specify which one is your need.");
+        }
+        if (dlfCacheEnabled) {
+            LOG.info("Enable dlf cache {} with {}", dlfCacheAddr, dlfCachePolicy);
+            newToken.put(cacheAddrKey, dlfCacheAddr);
+            newToken.put(IO_CACHE_ENABLED.key(), "true");
+        } else if (sparkCacheEnabled) {
+            LOG.info("Enable spark cache {} and overwrite all cache config", sparkCacheAddr);
+            newToken.put(cacheAddrKey, sparkCacheAddr);
+            newToken.put(IO_CACHE_ENABLED.key(), "true");
+            if (catalogOptions.contains(IO_CACHE_POLICY)) {
+                newToken.put(IO_CACHE_POLICY.key(), catalogOptions.get(IO_CACHE_POLICY));
+            } else {
+                newToken.put(IO_CACHE_POLICY.key(), "read,meta");
+            }
             newToken.put(
-                    IO_CACHE_ENABLED.key(), String.valueOf(catalogOptions.get(IO_CACHE_ENABLED)));
+                    IO_CACHE_WHITELIST_PATH.key(), catalogOptions.get(IO_CACHE_WHITELIST_PATH));
+        } else {
+            newToken.remove(cacheAddrKey);
+            LOG.info("No cache enabled");
         }
         return ImmutableMap.copyOf(newToken);
     }
