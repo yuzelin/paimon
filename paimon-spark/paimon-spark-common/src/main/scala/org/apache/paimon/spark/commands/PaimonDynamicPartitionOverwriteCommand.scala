@@ -64,6 +64,17 @@ case class PaimonDynamicPartitionOverwriteCommand(
       newChild: LogicalPlan): PaimonDynamicPartitionOverwriteCommand = copy(query = newChild)
 
   override def run(sparkSession: SparkSession): Seq[Row] = {
+    // Materialize the (potentially already-optimized) `query` plan into a fresh DataFrame
+    // backed by a `LogicalRDD` before handing it to `WriteIntoPaimonTable`. Without this,
+    // `PaimonSparkWriter.writeWithoutBucket` calls `dataFrame.mapPartitions { ... }`, which
+    // wraps the plan in a new `Dataset` that re-runs `assertAnalyzed`. If the plan still
+    // carries optimizer-only nodes (e.g. an unresolved `DynamicPruningSubquery` injected by
+    // Spark's `PartitionPruning` rule when the embedding host has already optimized the
+    // plan before `Dataset.ofRows`), `CheckAnalysis` aborts with INTERNAL_ERROR.
+    // `createNewDataFrame` goes through `internalCreateDataFrame(qe.toRdd, schema)`, which
+    // performs full physical planning (so DPP is realized as `InSubqueryExec` and pruning
+    // still benefits) and produces a clean `LogicalRDD`-backed plan with no unresolved
+    // residue.
     WriteIntoPaimonTable(
       fileStoreTable,
       DynamicOverWrite,
