@@ -98,6 +98,7 @@ under the License.
                             <artifactSet>
                                 <includes combine.children="append">
                                     <include>org.apache.paimon:paimon-jindo</include>
+                                    <include>org.apache.paimon:paimon-jindodls</include>
                                     <include>org.apache.paimon:paimon-bundle</include>
                                 </includes>
                             </artifactSet>
