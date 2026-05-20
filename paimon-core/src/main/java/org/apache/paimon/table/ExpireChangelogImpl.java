@@ -155,15 +155,20 @@ public class ExpireChangelogImpl implements ExpireSnapshots {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Ready to delete changelog files from changelog #" + id);
             }
-            Changelog changelog = changelogManager.longLivedChangelog(id);
+            Changelog changelog;
+            try {
+                changelog = changelogManager.tryGetChangelog(id);
+            } catch (FileNotFoundException e) {
+                LOG.warn("Changelog {} not found, skip.", id);
+                continue;
+            }
             Predicate<ExpireFileEntry> skipper;
             try {
                 skipper = changelogDeletion.createDataFileSkipperForTags(taggedSnapshots, id);
             } catch (Exception e) {
                 LOG.info(
-                        String.format(
-                                "Skip cleaning data files of changelog '%s' due to failed to build skipping set.",
-                                id),
+                        "Skip cleaning data files of changelog '{}' due to failed to build skipping set.",
+                        id,
                         e);
                 continue;
             }
