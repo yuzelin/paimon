@@ -248,6 +248,12 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-lumina</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- Below are common test dependencies, place them in this parent module to facilitate
              reuse by all downstream test modules. -->
 
@@ -403,4 +409,11 @@ under the License.
             </plugin>
         </plugins>
     </build>
+
+    <repositories>
+        <repository>
+            <id>lumina</id>
+            <url>https://lumina-binary.oss-cn-shanghai.aliyuncs.com/mvn-repo/</url>
+        </repository>
+    </repositories>
 </project>
