@@ -31,6 +31,7 @@ import org.apache.paimon.function.Function;
 import org.apache.paimon.function.FunctionDefinition;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.rest.RESTCatalog;
+import org.apache.paimon.rest.exceptions.RESTException;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.spark.catalog.FormatTableCatalog;
@@ -509,14 +510,20 @@ public class SparkCatalog extends SupportIceberg
             return new RollbackStagedTable(loadTable(ident), () -> {});
         } catch (Catalog.TableNotExistException e) {
             throw new NoSuchTableException(ident);
-        } catch (UnsupportedOperationException e) {
-            // Catalog cannot replace in-place; fall back to drop+create, losing snapshot history.
-            LOG.warn(
-                    "Catalog {} does not support replaceTable, falling back to drop+create for {}.",
-                    catalog.getClass().getName(),
-                    tableIdent.getFullName(),
-                    e);
-            return stageReplaceByDropAndCreate(ident, tableIdent, targetSchema);
+        } catch (Throwable e) {
+            if (e instanceof RESTException) {
+                if ((e.getMessage().contains("Not Found")) && e.getMessage().contains("404")) {
+                    // Catalog cannot replace in-place; fall back to drop+create, losing snapshot
+                    // history.
+                    LOG.warn(
+                            "Catalog {} does not support replaceTable, falling back to drop+create for {}.",
+                            catalog.getClass().getName(),
+                            tableIdent.getFullName(),
+                            e);
+                    return stageReplaceByDropAndCreate(ident, tableIdent, targetSchema);
+                }
+            }
+            throw new RuntimeException(e);
         }
     }
 
