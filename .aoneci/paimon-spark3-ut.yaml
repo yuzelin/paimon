@@ -5,6 +5,10 @@ triggers:
     target-branches: '**'
     types:
       - opened
+  schedule:
+    - cron: "0 8 * * *"
+      branches:
+        - "emr/esr-master"
 
 params:
 

@@ -1,22 +1,18 @@
-name: run paimon spark4 ut
+name: run paimon spark deploy
 
 triggers:
-  merge_request:
-    target-branches: '**'
-    types:
-      - opened
   schedule:
-    - cron: "0 8 * * *"
+    - cron: "0 6 * * 1"
       branches:
         - "emr/esr-master"
 
-params:
-
 jobs:
-  package:
-    name: 运行 UT
+  deploy:
+    name: 部署 paimon 到 emr-release
 
-    image: 'crpi-ikefsbzah0txoyw5.cn-hangzhou.personal.cr.aliyuncs.com/emr-ss/spark:20250813-1-amd-jdk17'
+    timeout: 2h
+
+    image: 'crpi-ikefsbzah0txoyw5.cn-hangzhou.personal.cr.aliyuncs.com/emr-ss/spark:20250813-1-amd'
 
     steps:
       - id: fetch-image
@@ -35,19 +31,16 @@ jobs:
           username: ${{vars.code_username}}
           token: ${{secrets.code_token}}
 
-      - id: run-package
+      - id: run-deploy
         run: |
           # common env
           set -ex
           export WORKSPACE=$(pwd)
-          
-          echo "start run ut"
-          sh ${WORKSPACE}/paimon/.aoneci/shell/spark4-ut.sh
-          echo "finish run ut"
 
-      - id: upload-test-result
-        uses: test-report-upload
-        inputs:
-          testcase_file: "**/surefire-reports/*.xml"
-          coverage_file: "**/jacoco/**/*.xml"
+          # job args
+          export SS_MAVEN_USERNAME=${{vars.ss_maven_username}}
+          export SS_MAVEN_PASSWORD=${{secrets.ss_maven_password}}
 
+          echo "start run deploy"
+          sh ${WORKSPACE}/paimon/.aoneci/shell/deploy.sh
+          echo "finish run deploy"

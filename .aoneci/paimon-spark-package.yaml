@@ -43,11 +43,6 @@ params:
     type: boolean
     default: true
 
-  DEPLOY_TO_EMR_RELEASE:
-    description: '是否 deploy paimon 到 emr-release：https://emr-maven.alibaba.net/#browse/browse:emr-release'
-    type: boolean
-    default: false
-
   UPLOAD_TO_OSS:
     description: '是否上传打包结果到 OSS'
     type: boolean
@@ -103,7 +98,6 @@ jobs:
           export PAIMON_ALI_ALIORC=${{params.PAIMON_ALI_ALIORC}}
           export PAIMON_HIVE=${{params.PAIMON_HIVE}}
           export FORMAT_PACKAGE=${{params.FORMAT_PACKAGE}}
-          export DEPLOY_TO_EMR_RELEASE=${{params.DEPLOY_TO_EMR_RELEASE}}
           export JDK17=${{params.JDK17}}
           export SS_MAVEN_USERNAME=${{vars.ss_maven_username}}
           export SS_MAVEN_PASSWORD=${{secrets.ss_maven_password}}

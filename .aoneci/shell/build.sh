@@ -17,33 +17,8 @@ sed -i "s/SS_MAVEN_USERNAME/${SS_MAVEN_USERNAME}/g; s/SS_MAVEN_PASSWORD/${SS_MAV
 
 echo "start install paimon"
 cd ${WORKSPACE}/paimon
-if [ "${DEPLOY_TO_EMR_RELEASE}" = true ]; then
-  # install firstly to make sure all modules are compiled correctly
-  mvn clean -DskipTests install ${spark_profile} -ntp
-  # deploy all spark versions
-  PAIMON_VERSION=$(sed -n 's/.*<version>\([^<]*\)<\/version>.*/\1/p' pom.xml | sed -n '2p')
-  echo "PAIMON_VERSION: ${PAIMON_VERSION}"
-  if echo "$PAIMON_VERSION" | grep -iq "snapshot"; then
-    EMR_DEPLOY_REPO="emr-release::default::https://emr-maven.alibaba.net/repository/emr-snapshot/"
-  else
-    EMR_DEPLOY_REPO="emr-release::default::https://emr-maven.alibaba.net/repository/emr-release/"
-  fi
-
-  if [[ ${SPARK_VERSION} == 4* ]]; then
-    MVN_CONF="install -ntp deploy ${spark_profile},deploy-aliyun -Demr.deploy.repo=${EMR_DEPLOY_REPO} -pl org.apache.paimon:paimon-spark-common_2.13,org.apache.paimon:paimon-spark-ut_2.13,org.apache.paimon:paimon-spark4-common_2.13,org.apache.paimon:paimon-spark-4.0_2.13,org.apache.paimon:paimon-spark-4.1_2.13"
-  else
-    MVN_CONF="install -ntp deploy ${spark_profile},deploy-aliyun -Demr.deploy.repo=${EMR_DEPLOY_REPO}"
-  fi
-else
-  MVN_CONF="-pl paimon-spark/paimon-spark-${SPARK_VERSION}/ -am install ${spark_profile} -ntp"
-fi
-
-mvn clean -DskipTests ${MVN_CONF}
+mvn clean -DskipTests -pl paimon-spark/paimon-spark-${SPARK_VERSION}/ -am install ${spark_profile} -ntp
 echo "finish install paimon"
-
-if [ "${DEPLOY_TO_EMR_RELEASE}" = true ]; then
-  exit 0
-fi
 
 PAIMON_VERSION=$(sed -n 's/.*<version>\([^<]*\)<\/version>.*/\1/p' ${WORKSPACE}/paimon/pom.xml | sed -n '2p')
 echo "paimon-ali will use PAIMON_VERSION: ${PAIMON_VERSION}"
