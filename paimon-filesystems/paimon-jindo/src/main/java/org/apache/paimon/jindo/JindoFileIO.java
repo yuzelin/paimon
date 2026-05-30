@@ -158,6 +158,10 @@ public class JindoFileIO extends HadoopCompliantFileIO implements HadoopOptionsP
         hadoopOptionsWithCache.set("fs.oss.read.profile.columnar.use-pread", "false");
         hadoopOptionsWithCache.set(
                 "fs.jindocache.read.profile.columnar.readahead.pread.enable", "false");
+        String fsxPrefix = "fs.jindofsx";
+        context.hadoopConf()
+                .getPropsWithPrefix(fsxPrefix)
+                .forEach((key, value) -> hadoopOptionsWithCache.set(fsxPrefix + key, value));
     }
 
     /**
