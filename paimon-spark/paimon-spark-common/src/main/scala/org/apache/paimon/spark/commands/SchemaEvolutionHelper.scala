@@ -31,7 +31,7 @@ import org.apache.spark.sql.{DataFrame, PaimonUtils, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.connector.catalog.TableCatalog
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{ArrayType, DataType, MapType, NullType, StructField, StructType}
 
 import scala.collection.JavaConverters._
 
@@ -99,8 +99,7 @@ private[spark] object SchemaEvolutionHelper {
       table: FileStoreTable,
       dataSchema: StructType,
       flags: SchemaEvolutionFlags): Option[TableSchema] = {
-    val filtered = SparkSystemColumns.filterSparkSystemColumns(dataSchema)
-    val dataRowType = SparkTypeUtils.toPaimonType(filtered).asInstanceOf[RowType]
+    val dataRowType = toDataRowType(table, dataSchema, flags.caseSensitive)
     val current = table.schema()
     val merged =
       SchemaMergingUtils.mergeSchemas(
@@ -122,13 +121,60 @@ private[spark] object SchemaEvolutionHelper {
       dataSchema: StructType,
       sparkSession: SparkSession,
       options: Options = new Options()): Boolean = {
-    val filtered = SparkSystemColumns.filterSparkSystemColumns(dataSchema)
     val flags = readFlags(sparkSession, options)
-    val dataRowType = SparkTypeUtils.toPaimonType(filtered).asInstanceOf[RowType]
+    val dataRowType = toDataRowType(table, dataSchema, flags.caseSensitive)
     table
       .store()
       .mergeSchema(dataRowType, flags.typeWidening, flags.allowExplicitCast, flags.caseSensitive)
   }
+
+  /**
+   * Convert the incoming data schema to a Paimon [[RowType]] (dropping Spark system columns),
+   * shared by [[computeMergedSchema]] and [[commitSchemaEvolution]].
+   *
+   * A bare `NULL` / empty `array()` literal has Spark type `void`, which carries no type
+   * information: it can neither define a new column nor drive type widening. For such a column we
+   * substitute the existing target type when the column already exists (so existing-column writes
+   * just keep their type), and fail with a clear, actionable message when it would be a brand-new
+   * column (the type cannot be inferred from a NULL literal).
+   */
+  private def toDataRowType(
+      table: FileStoreTable,
+      dataSchema: StructType,
+      caseSensitive: Boolean): RowType = {
+    val filtered = SparkSystemColumns.filterSparkSystemColumns(dataSchema)
+    lazy val targetSchema = SparkTypeUtils.fromPaimonRowType(table.schema().logicalRowType())
+    val resolved = StructType(filtered.fields.map {
+      field =>
+        if (!containsVoidType(field.dataType)) {
+          field
+        } else {
+          findField(targetSchema, field.name, caseSensitive) match {
+            case Some(targetField) => field.copy(dataType = targetField.dataType)
+            case None =>
+              throw new UnsupportedOperationException(
+                s"Cannot infer the type of column `${field.name}` from a NULL literal while " +
+                  s"evolving the schema. Cast it to a concrete type, e.g. CAST(NULL AS STRING).")
+          }
+        }
+    })
+    SparkTypeUtils.toPaimonType(resolved).asInstanceOf[RowType]
+  }
+
+  /** Whether a Spark type is, or nests, `void` (`NullType`) — e.g. `array<void>`. */
+  private def containsVoidType(dataType: DataType): Boolean = dataType match {
+    case _: NullType => true
+    case a: ArrayType => containsVoidType(a.elementType)
+    case m: MapType => containsVoidType(m.keyType) || containsVoidType(m.valueType)
+    case s: StructType => s.fields.exists(f => containsVoidType(f.dataType))
+    case _ => false
+  }
+
+  private def findField(
+      schema: StructType,
+      name: String,
+      caseSensitive: Boolean): Option[StructField] =
+    schema.fields.find(f => if (caseSensitive) f.name == name else f.name.equalsIgnoreCase(name))
 
   /**
    * Persist the schema that MERGE INTO evolved in memory (see [[evolvedTableInMemory]]) and refresh
