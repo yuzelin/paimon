@@ -262,6 +262,8 @@ public class RESTTokenFileIO implements FileIO {
             LOG.info("Enable dlf cache {} with {}", dlfCacheAddr, dlfCachePolicy);
             newToken.put(cacheAddrKey, dlfCacheAddr);
             newToken.put(IO_CACHE_ENABLED.key(), "true");
+            // Enable cache for fusion
+            newToken.put("fs.xengine", "jindocache");
         } else if (sparkCacheEnabled) {
             LOG.info("Enable spark cache {} and overwrite all cache config", sparkCacheAddr);
             newToken.put(cacheAddrKey, sparkCacheAddr);
