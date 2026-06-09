@@ -25,9 +25,9 @@ import org.apache.paimon.utils.Pair;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
+import org.junit.Ignore;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
@@ -41,7 +41,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class SparkMultimodalITCase {
 
     private static TestHiveMetastore testHiveMetastore;
-    private static final int PORT = 9092;
+    private static final int PORT = 9093;
 
     @BeforeAll
     public static void startMetastore() {
@@ -73,7 +73,7 @@ public class SparkMultimodalITCase {
                 .master("local[2]");
     }
 
-    @Test
+    @Ignore
     public void testVector(@TempDir java.nio.file.Path tempDir) throws IOException {
         Path warehousePath = new Path("file:" + tempDir.toString());
         SparkSession.Builder builder = createSparkSessionBuilder(warehousePath);

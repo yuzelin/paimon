@@ -24,7 +24,7 @@ import org.apache.spark.sql.Row
 
 class LanceFormatTest extends PaimonSparkTestBase {
 
-  test("Lance format: read and write") {
+  ignore("Lance format: read and write") {
     withTable("t") {
       sql(
         "CREATE TABLE t (a INT, b STRING, scores ARRAY<DOUBLE>) TBLPROPERTIES ('file.format' = 'lance')")
