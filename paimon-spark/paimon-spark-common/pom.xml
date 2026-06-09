@@ -102,8 +102,21 @@ under the License.
                                     <include>org.apache.paimon:paimon-bundle</include>
                                     <include>org.apache.paimon:paimon-lumina</include>
                                     <include>org.aliyun.lumina:lumina-jni</include>
+                                    <include>org.apache.paimon:paimon-mosaic</include>
+                                    <include>org.apache.paimon:paimon-arrow</include>
+                                    <include>org.apache.paimon:mosaic</include>
                                 </includes>
                             </artifactSet>
+                            <relocations>
+                                <relocation>
+                                    <pattern>org.apache.arrow</pattern>
+                                    <shadedPattern>org.apache.gluten.shaded.org.apache.arrow</shadedPattern>
+                                    <excludes>
+                                        <exclude>org.apache.arrow.c.jni.**</exclude>
+                                        <exclude>org.apache.arrow.c.**</exclude>
+                                    </excludes>
+                                </relocation>
+                            </relocations>
                         </configuration>
                     </execution>
                 </executions>
