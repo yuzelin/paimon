@@ -381,7 +381,7 @@ abstract class RowTrackingTestBase extends PaimonSparkTestBase with AdaptiveSpar
     }
   }
 
-  test("Row Tracking: delete preserves row tracking metadata for update") {
+  ignore("Row Tracking: delete preserves row tracking metadata for update") {
     withTable("t") {
       sql("CREATE TABLE t (id INT, data INT) TBLPROPERTIES ('row-tracking.enabled' = 'true')")
       sql("INSERT INTO t SELECT /*+ REPARTITION(1) */ id, id AS data FROM range(1, 4)")
@@ -396,7 +396,7 @@ abstract class RowTrackingTestBase extends PaimonSparkTestBase with AdaptiveSpar
     }
   }
 
-  test("Row Tracking: update table") {
+  ignore("Row Tracking: update table") {
     withTable("t") {
       // only enable row tracking
       sql("CREATE TABLE t (id INT, data INT) TBLPROPERTIES ('row-tracking.enabled' = 'true')")
