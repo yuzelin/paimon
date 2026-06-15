@@ -105,7 +105,7 @@ public final class HiveCatalogOptions {
     public static final ConfigOption<Boolean> ALTER_TABLE_CASCADE =
             ConfigOptions.key("alter-table-cascade")
                     .booleanType()
-                    .defaultValue(true)
+                    .defaultValue(false)
                     .withDescription(
                             "Whether to cascade schema changes to Hive metastore partitions when altering table.");
 
