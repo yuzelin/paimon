@@ -36,8 +36,20 @@ public class HiveAlterTableUtils {
             boolean skipUpdateStats,
             boolean cascade)
             throws TException {
+        alterTable(client, identifier, table, skipUpdateStats, cascade, false);
+    }
+
+    public static void alterTable(
+            IMetaStoreClient client,
+            Identifier identifier,
+            Table table,
+            boolean skipUpdateStats,
+            boolean cascade,
+            boolean skipPartitionAlter)
+            throws TException {
         try {
-            alterTableWithEnv(client, identifier, table, skipUpdateStats, cascade);
+            alterTableWithEnv(
+                    client, identifier, table, skipUpdateStats, cascade, skipPartitionAlter);
         } catch (NoClassDefFoundError | NoSuchMethodError e) {
             alterTableWithoutEnv(client, identifier, table, cascade);
         }
@@ -48,7 +60,8 @@ public class HiveAlterTableUtils {
             Identifier identifier,
             Table table,
             boolean skipUpdateStats,
-            boolean cascade)
+            boolean cascade,
+            boolean skipPartitionAlter)
             throws TException {
         String b = table.getParameters().get(StatsSetupConst.DO_NOT_UPDATE_STATS);
         boolean skipHiveUpdateStats =
@@ -56,6 +69,9 @@ public class HiveAlterTableUtils {
         EnvironmentContext environmentContext = new EnvironmentContext();
         if (cascade) {
             environmentContext.putToProperties(StatsSetupConst.CASCADE, "true");
+        }
+        if (skipPartitionAlter) {
+            environmentContext.putToProperties("SKIP_PARTITION_STATS_ALTER", "true");
         }
         environmentContext.putToProperties(
                 StatsSetupConst.DO_NOT_UPDATE_STATS, Boolean.toString(skipHiveUpdateStats));

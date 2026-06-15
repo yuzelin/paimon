@@ -102,6 +102,15 @@ public final class HiveCatalogOptions {
                                                             + "E.g. specifying \"conf:a.b.c\" will add \"a.b.c\" to the key, and so that configurations with different default catalog wouldn't share the same client pool. Multiple conf elements can be specified."))
                                     .build());
 
+    public static final ConfigOption<Boolean> ALTER_TABLE_SKIP_PARTITION_STATS_ALTER =
+            ConfigOptions.key("alter-table-skip-partition-stats-alter")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "When true, skip altering partitions in Hive metastore during alter table. "
+                                    + "Paimon manages schema independently, so HMS partition-level alter "
+                                    + "is unnecessary and slow for large partitioned tables.");
+
     public static final ConfigOption<Boolean> ALTER_TABLE_CASCADE =
             ConfigOptions.key("alter-table-cascade")
                     .booleanType()

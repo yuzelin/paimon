@@ -115,6 +115,7 @@ import static org.apache.paimon.catalog.CatalogUtils.listPartitionsFromFileSyste
 import static org.apache.paimon.catalog.Identifier.DEFAULT_MAIN_BRANCH;
 import static org.apache.paimon.format.csv.CsvOptions.FIELD_DELIMITER;
 import static org.apache.paimon.hive.HiveCatalogOptions.ALTER_TABLE_CASCADE;
+import static org.apache.paimon.hive.HiveCatalogOptions.ALTER_TABLE_SKIP_PARTITION_STATS_ALTER;
 import static org.apache.paimon.hive.HiveCatalogOptions.HADOOP_CONF_DIR;
 import static org.apache.paimon.hive.HiveCatalogOptions.HIVE_CONF_DIR;
 import static org.apache.paimon.hive.HiveCatalogOptions.HIVE_SKIP_UPDATE_STATS;
@@ -1321,6 +1322,7 @@ public class HiveCatalog extends AbstractCatalog {
         // file format is null, because only data table support alter table.
         updateHmsTable(table, identifier, newSchema, null, location);
         boolean skipUpdateStats = options.get(HIVE_SKIP_UPDATE_STATS);
+        boolean skipPartitionAlter = options.get(ALTER_TABLE_SKIP_PARTITION_STATS_ALTER);
         clients()
                 .execute(
                         client ->
@@ -1329,7 +1331,8 @@ public class HiveCatalog extends AbstractCatalog {
                                         identifier,
                                         table,
                                         skipUpdateStats,
-                                        options.get(ALTER_TABLE_CASCADE)));
+                                        options.get(ALTER_TABLE_CASCADE),
+                                        skipPartitionAlter));
     }
 
     @Override
