@@ -28,11 +28,13 @@ import org.apache.paimon.table.source.Split
 import org.apache.paimon.utils.CompressUtils
 
 import org.apache.spark.SparkConf
+import org.apache.spark.metrics.source.HiveCatalogMetrics
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.connector.read.InputPartition
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
+import org.apache.spark.sql.execution.exchange.BroadcastExchangeExec
 
 abstract class FormatTableTestBase extends PaimonHiveTestBase with AdaptiveSparkPlanHelper {
 
@@ -560,6 +562,338 @@ abstract class FormatTableTestBase extends PaimonHiveTestBase with AdaptiveSpark
 
       val filteredSplits = collectFilteredInputSplits(df.queryExecution.executedPlan, "fact_table")
       assert(filteredSplits.size == 2)
+    }
+  }
+
+  test("Format table: engine static partition overwrite") {
+    withSparkSQLConf("spark.paimon.format-table.implementation" -> "engine") {
+      withTable("t") {
+        sql(s"""
+               |CREATE TABLE t (age INT, name STRING)
+               |USING csv TBLPROPERTIES ('format-table.implementation'='engine')
+               |PARTITIONED BY (id INT)
+               |""".stripMargin)
+
+        sql("INSERT INTO t PARTITION (id = 1) VALUES (5, 'Ben'), (7, 'Larry')")
+        sql("INSERT INTO t PARTITION (id = 2) VALUES (10, 'Alice')")
+
+        checkAnswer(
+          sql("SELECT id, age, name FROM t ORDER BY id, age"),
+          Row(1, 5, "Ben") :: Row(1, 7, "Larry") :: Row(2, 10, "Alice") :: Nil)
+
+        sql("INSERT OVERWRITE t PARTITION (id = 1) VALUES (5, 'Jerry'), (7, 'Tom')")
+
+        checkAnswer(
+          sql("SELECT id, age, name FROM t ORDER BY id, age"),
+          Row(1, 5, "Jerry") :: Row(1, 7, "Tom") :: Row(2, 10, "Alice") :: Nil)
+      }
+    }
+  }
+
+  test("Format table: engine dynamic partition overwrite") {
+    withSparkSQLConf("spark.paimon.format-table.implementation" -> "engine") {
+      withTable("t") {
+        sql(s"""
+               |CREATE TABLE t (age INT, name STRING)
+               |USING csv TBLPROPERTIES ('format-table.implementation'='engine')
+               |PARTITIONED BY (id INT)
+               |""".stripMargin)
+
+        sql("INSERT INTO t PARTITION (id = 1) VALUES (5, 'Ben'), (7, 'Larry')")
+        sql("INSERT INTO t PARTITION (id = 2) VALUES (10, 'Alice')")
+        sql("INSERT INTO t PARTITION (id = 3) VALUES (20, 'Bob')")
+
+        withSparkSQLConf("spark.sql.sources.partitionOverwriteMode" -> "dynamic") {
+          sql("INSERT OVERWRITE t VALUES (5, 'Jerry', 1), (7, 'Tom', 2)")
+        }
+
+        checkAnswer(
+          sql("SELECT id, age, name FROM t ORDER BY id, age"),
+          Row(1, 5, "Jerry") :: Row(2, 7, "Tom") :: Row(3, 20, "Bob") :: Nil)
+      }
+    }
+  }
+
+  test("Format table: engine partition pruning on multi-level partitions") {
+    withSparkSQLConf("spark.paimon.format-table.implementation" -> "engine") {
+      val p1Count = 20
+      val p2Count = 30
+      val totalPartitions = p1Count * p2Count
+      withTable("t") {
+        sql(s"""
+               |CREATE TABLE t (id INT, value STRING)
+               |USING csv TBLPROPERTIES ('format-table.implementation'='engine')
+               |PARTITIONED BY (p1 INT, p2 INT)
+               |""".stripMargin)
+
+        sql(s"""INSERT INTO t
+               |SELECT p1, 'v', p1, p2
+               |FROM (SELECT id AS p1 FROM range(1, ${p1Count + 1}))
+               |CROSS JOIN (SELECT id AS p2 FROM range(1, ${p2Count + 1}))
+               |""".stripMargin)
+
+        val rangeThreshold = p1Count - 5
+
+        for (lazyPruning <- Seq(true, false)) {
+          withSparkSQLConf(
+            "spark.paimon.format-table.engine.lazy-partition-pruning" -> lazyPruning.toString) {
+
+            assert(filesDiscoveredFor("SELECT * FROM t") == totalPartitions)
+
+            if (lazyPruning) {
+              assert(filesDiscoveredFor("SELECT * FROM t WHERE p1 = 1 AND p2 = 1") == 1)
+              assert(filesDiscoveredFor("SELECT * FROM t WHERE p1 = 1") == p2Count)
+              assert(filesDiscoveredFor("SELECT * FROM t WHERE p2 = 1") == p1Count)
+              assert(
+                filesDiscoveredFor(s"SELECT * FROM t WHERE p1 > $rangeThreshold") == 5 * p2Count)
+              assert(
+                filesDiscoveredFor(s"SELECT * FROM t WHERE p1 > $rangeThreshold AND p2 = 1") == 5)
+            } else {
+              assert(
+                filesDiscoveredFor("SELECT * FROM t WHERE p1 = 1 AND p2 = 1") == totalPartitions)
+              assert(filesDiscoveredFor("SELECT * FROM t WHERE p1 = 1") == totalPartitions)
+              assert(filesDiscoveredFor("SELECT * FROM t WHERE p2 = 1") == totalPartitions)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  test("Format table: engine partition pruning with all basic types") {
+    withSparkSQLConf("spark.paimon.format-table.implementation" -> "engine") {
+      val types = Seq(
+        ("INT", "1", "2"),
+        ("BIGINT", "1000000000000", "2000000000000"),
+        ("SMALLINT", "1", "2"),
+        ("TINYINT", "1", "2"),
+        ("FLOAT", "1.5", "2.5"),
+        ("DOUBLE", "1.5", "2.5"),
+        ("DECIMAL(10,2)", "1.50", "2.50"),
+        ("STRING", "'aaa'", "'bbb'"),
+        ("BOOLEAN", "true", "false"),
+        ("DATE", "DATE'2025-01-01'", "DATE'2025-06-15'"),
+        ("TIMESTAMP", "TIMESTAMP'2025-01-01 00:00:00'", "TIMESTAMP'2025-06-15 12:00:00'")
+      )
+      for ((partType, v1, v2) <- types) {
+        val tableName = s"t_${partType.replaceAll("[^a-zA-Z]", "").toLowerCase}"
+        withTable(tableName) {
+          sql(s"""
+                 |CREATE TABLE $tableName (id INT, data STRING)
+                 |USING csv TBLPROPERTIES ('format-table.implementation'='engine')
+                 |PARTITIONED BY (pt $partType)
+                 |""".stripMargin)
+
+          sql(s"INSERT INTO $tableName VALUES (1, 'a', $v1)")
+          sql(s"INSERT INTO $tableName VALUES (2, 'b', $v2)")
+
+          HiveCatalogMetrics.reset()
+          val result = sql(s"SELECT id, data FROM $tableName WHERE pt = $v1 ORDER BY id").collect()
+          val filesDiscovered = HiveCatalogMetrics.METRIC_FILES_DISCOVERED.getCount
+
+          assert(result.length == 1, s"[$partType] should return 1 row, got ${result.length}")
+          assert(result.head.getInt(0) == 1, s"[$partType] row id should be 1")
+          assert(
+            filesDiscovered == 1,
+            s"[$partType] partition pruning should discover 1 file, got $filesDiscovered")
+        }
+      }
+    }
+  }
+
+  test("Format table: engine partition pruning with null partition values") {
+    withSparkSQLConf("spark.paimon.format-table.implementation" -> "engine") {
+      withTable("t") {
+        sql(s"""
+               |CREATE TABLE t (id INT, data STRING)
+               |USING csv TBLPROPERTIES ('format-table.implementation'='engine')
+               |PARTITIONED BY (pt STRING)
+               |""".stripMargin)
+
+        sql("INSERT INTO t VALUES (1, 'a', 'x')")
+        sql("INSERT INTO t VALUES (2, 'b', null)")
+        sql("INSERT INTO t VALUES (3, 'c', 'y')")
+
+        checkAnswer(sql("SELECT id FROM t WHERE pt = 'x'"), Row(1) :: Nil)
+
+        checkAnswer(sql("SELECT id FROM t WHERE pt IS NULL ORDER BY id"), Row(2) :: Nil)
+
+        checkAnswer(sql("SELECT id FROM t ORDER BY id"), Row(1) :: Row(2) :: Row(3) :: Nil)
+
+        HiveCatalogMetrics.reset()
+        sql("SELECT * FROM t WHERE pt = 'x'").collect()
+        assert(HiveCatalogMetrics.METRIC_FILES_DISCOVERED.getCount == 1)
+      }
+    }
+  }
+
+  test("Format table: engine partition pruning with multi-column predicate fallback") {
+    withSparkSQLConf("spark.paimon.format-table.implementation" -> "engine") {
+      withTable("t") {
+        sql(s"""
+               |CREATE TABLE t (id INT, value STRING)
+               |USING csv TBLPROPERTIES ('format-table.implementation'='engine')
+               |PARTITIONED BY (p1 INT, p2 INT)
+               |""".stripMargin)
+
+        sql("INSERT INTO t VALUES (1, 'a', 1, 1)")
+        sql("INSERT INTO t VALUES (2, 'b', 1, 2)")
+        sql("INSERT INTO t VALUES (3, 'c', 2, 1)")
+        sql("INSERT INTO t VALUES (4, 'd', 2, 2)")
+
+        // p1 = 1 is a single-column predicate (pruned at level), p1 + p2 handled by final pruning
+        checkAnswer(sql("SELECT id FROM t WHERE p1 = 1 AND p1 + p2 < 3 ORDER BY id"), Row(1) :: Nil)
+
+        // pure multi-column predicate — level-by-level can't prune, but result is still correct
+        checkAnswer(sql("SELECT id FROM t WHERE p1 + p2 = 3 ORDER BY id"), Row(2) :: Row(3) :: Nil)
+      }
+    }
+  }
+
+  test("Format table: engine should see data after insert to same and new partitions") {
+    withSparkSQLConf("spark.paimon.format-table.implementation" -> "engine") {
+      withTable("t") {
+        sql(s"""
+               |CREATE TABLE t (id INT, data STRING)
+               |USING csv TBLPROPERTIES ('format-table.implementation'='engine')
+               |PARTITIONED BY (pt INT)
+               |""".stripMargin)
+
+        sql("INSERT INTO t VALUES (1, 'a', 1)")
+        checkAnswer(sql("SELECT * FROM t"), Row(1, "a", 1) :: Nil)
+
+        // insert to same partition
+        sql("INSERT INTO t VALUES (2, 'b', 1)")
+        checkAnswer(sql("SELECT id FROM t WHERE pt = 1 ORDER BY id"), Row(1) :: Row(2) :: Nil)
+
+        // insert to new partition
+        sql("INSERT INTO t VALUES (3, 'c', 2)")
+        checkAnswer(sql("SELECT id FROM t ORDER BY id"), Row(1) :: Row(2) :: Row(3) :: Nil)
+        checkAnswer(sql("SELECT id FROM t WHERE pt = 2"), Row(3) :: Nil)
+
+        // full scan after inserts
+        checkAnswer(
+          sql("SELECT id, pt FROM t ORDER BY id"),
+          Row(1, 1) :: Row(2, 1) :: Row(3, 2) :: Nil)
+
+        // overwrite existing partition, other partition untouched
+        sql("INSERT OVERWRITE t PARTITION (pt = 1) VALUES (10, 'x')")
+        checkAnswer(sql("SELECT id FROM t ORDER BY id"), Row(3) :: Row(10) :: Nil)
+
+        // full scan after overwrite
+        checkAnswer(sql("SELECT id, pt FROM t ORDER BY id"), Row(3, 2) :: Row(10, 1) :: Nil)
+      }
+    }
+  }
+
+  private def filesDiscoveredFor(query: String): Long = {
+    HiveCatalogMetrics.reset()
+    sql(query).collect()
+    HiveCatalogMetrics.METRIC_FILES_DISCOVERED.getCount
+  }
+
+  private def withMultiLevelFormatTable(p1Count: Int, p2Count: Int)(f: => Unit): Unit = {
+    withSparkSQLConf("spark.paimon.format-table.implementation" -> "engine") {
+      withTable("t") {
+        sql(s"""
+               |CREATE TABLE t (id INT, value STRING)
+               |USING csv TBLPROPERTIES ('format-table.implementation'='engine')
+               |PARTITIONED BY (p1 INT, p2 INT)
+               |""".stripMargin)
+        sql(s"""INSERT INTO t
+               |SELECT p1, 'v', p1, p2
+               |FROM (SELECT id AS p1 FROM range(1, ${p1Count + 1}))
+               |CROSS JOIN (SELECT id AS p2 FROM range(1, ${p2Count + 1}))
+               |""".stripMargin)
+        f
+      }
+    }
+  }
+
+  test("Format table: lazy stats keeps partition pruning for filtered broadcast join") {
+    val (p1Count, p2Count) = (6, 5)
+    withMultiLevelFormatTable(p1Count, p2Count) {
+      // A tiny dimension joined on the partition column. Backed by VALUES so it never adds to the
+      // file-discovery metric; it forces planning to estimate `t`'s stats (fileIndex.sizeInBytes).
+      sql("CREATE OR REPLACE TEMP VIEW dim AS SELECT * FROM VALUES (1), (2) AS dim(p1)")
+
+      withSparkSQLConf("spark.paimon.format-table.engine.lazy-partition-pruning" -> "true") {
+        // Planning-time size estimate must not list every partition: only pruned ones are discovered.
+        assert(
+          filesDiscoveredFor(
+            "SELECT t.* FROM t JOIN dim ON t.p1 = dim.p1 WHERE t.p1 = 1") == p2Count)
+        assert(
+          filesDiscoveredFor(
+            "SELECT t.* FROM t JOIN dim ON t.p1 = dim.p1 WHERE t.p1 = 1 AND t.p2 = 1") == 1)
+      }
+
+      withSparkSQLConf("spark.paimon.format-table.engine.lazy-partition-pruning" -> "false") {
+        // Eager listing materializes the whole table regardless of the partition filter.
+        assert(
+          filesDiscoveredFor("SELECT t.* FROM t JOIN dim ON t.p1 = dim.p1 WHERE t.p1 = 1")
+            == p1Count * p2Count)
+      }
+    }
+  }
+
+  test("Format table: lazy stats serves an unfiltered broadcast join from the full index") {
+    val (p1Count, p2Count) = (6, 5)
+    withMultiLevelFormatTable(p1Count, p2Count) {
+      sql("CREATE OR REPLACE TEMP VIEW dim AS SELECT * FROM VALUES (1), (2) AS dim(p1)")
+      withSparkSQLConf("spark.paimon.format-table.engine.lazy-partition-pruning" -> "true") {
+        // No partition filter: the full index is materialized once and lists every partition.
+        val df = sql("SELECT t.* FROM t JOIN dim ON t.p1 = dim.p1")
+        assert(
+          filesDiscoveredFor("SELECT t.* FROM t JOIN dim ON t.p1 = dim.p1") == p1Count * p2Count)
+        assert(df.collect().length == 2 * p2Count)
+      }
+    }
+  }
+
+  test("Format table: small partitioned table is broadcast via estimated size") {
+    withSparkSQLConf("spark.paimon.format-table.implementation" -> "engine") {
+      withTable("s") {
+        sql(s"""
+               |CREATE TABLE s (v STRING)
+               |USING csv TBLPROPERTIES ('format-table.implementation'='engine')
+               |PARTITIONED BY (p1 INT)
+               |""".stripMargin)
+        // Two tiny partitions: the sampled-size estimate is far below the threshold below.
+        sql("INSERT INTO s VALUES ('a', 1), ('b', 2)")
+
+        withSparkSQLConf(
+          "spark.paimon.format-table.engine.lazy-partition-pruning" -> "true",
+          "spark.sql.adaptive.enabled" -> "false",
+          // 10KB: comfortably fits the tiny `s` but not the 100k-row range below.
+          "spark.sql.autoBroadcastJoinThreshold" -> "10240"
+        ) {
+          // `s` can only be the broadcast side here, so a BroadcastExchange proves its estimated size
+          // is small. With the old default (Long.MaxValue) `s` would plan as a SortMergeJoin instead.
+          val df = sql("SELECT s.v FROM s JOIN range(100000) r ON s.p1 = r.id")
+          val plan = df.queryExecution.executedPlan
+          assert(
+            collect(plan) { case b: BroadcastExchangeExec => b }.nonEmpty,
+            s"small partitioned table should be broadcast, plan:\n$plan")
+          assert(df.collect().map(_.getString(0)).sorted.toSeq == Seq("a", "b"))
+        }
+      }
+    }
+  }
+
+  test("Format table: empty engine table join does not fail or wrongly broadcast") {
+    withSparkSQLConf("spark.paimon.format-table.implementation" -> "engine") {
+      withTable("e") {
+        sql(s"""
+               |CREATE TABLE e (v STRING)
+               |USING csv TBLPROPERTIES ('format-table.implementation'='engine')
+               |PARTITIONED BY (p1 INT)
+               |""".stripMargin)
+        // No data => no partition directories: the estimate must fall back to the conservative default
+        // size instead of estimating 0 (which would wrongly mark the table broadcastable).
+        withSparkSQLConf("spark.paimon.format-table.engine.lazy-partition-pruning" -> "true") {
+          assert(sql("SELECT e.v FROM e JOIN range(10) r ON e.p1 = r.id").collect().isEmpty)
+        }
+      }
     }
   }
 
