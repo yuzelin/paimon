@@ -300,6 +300,7 @@ abstract class RowTrackingTestBase extends PaimonSparkTestBase with AdaptiveSpar
   }
 
   test("Row Tracking: compact table") {
+    assume(!gteqSpark4_0 || gteqSpark4_1)
     withTable("t") {
       sql(
         "CREATE TABLE t (id INT, data INT) TBLPROPERTIES ('row-tracking.enabled' = 'true', 'compaction.min.file-num'='2')")
