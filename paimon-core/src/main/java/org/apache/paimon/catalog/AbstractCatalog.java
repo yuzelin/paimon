@@ -78,6 +78,8 @@ import static org.apache.paimon.catalog.CatalogUtils.validateCreateTable;
 import static org.apache.paimon.catalog.Identifier.DEFAULT_MAIN_BRANCH;
 import static org.apache.paimon.options.CatalogOptions.LOCK_ENABLED;
 import static org.apache.paimon.options.CatalogOptions.LOCK_TYPE;
+import static org.apache.paimon.options.CatalogOptions.TRASH_DIR;
+import static org.apache.paimon.options.CatalogOptions.TRASH_ENABLED;
 
 /** Common implementation of {@link Catalog}. */
 public abstract class AbstractCatalog implements Catalog {
@@ -393,7 +395,48 @@ public abstract class AbstractCatalog implements Catalog {
             }
         }
 
+        if (trashEnabled()) {
+            Path tablePath = getTableLocation(identifier);
+            moveToTrash(tablePath, identifier);
+        }
+
         dropTableImpl(identifier, new ArrayList<>(externalPaths));
+    }
+
+    protected boolean trashEnabled() {
+        return context.options().get(TRASH_ENABLED);
+    }
+
+    protected Path trashDirectory() {
+        return context.options()
+                .getOptional(TRASH_DIR)
+                .map(Path::new)
+                .orElseGet(() -> new Path(warehouse(), ".trash"));
+    }
+
+    protected void moveToTrash(Path tablePath, Identifier identifier) {
+        Path trashDbPath = new Path(trashDirectory(), identifier.getDatabaseName() + DB_SUFFIX);
+        Path trashTablePath = new Path(trashDbPath, identifier.getTableName());
+        try {
+            String orig = trashTablePath.toString();
+            while (fileIO.exists(trashTablePath)) {
+                trashTablePath = new Path(orig + System.currentTimeMillis());
+            }
+            fileIO.mkdirs(trashTablePath.getParent());
+            boolean success = fileIO.rename(tablePath, trashTablePath);
+            if (success) {
+                LOG.info("Moved table {} to trash: {}", identifier.getFullName(), trashTablePath);
+            } else {
+                LOG.warn(
+                        "Failed to move table {} to trash, will delete permanently",
+                        identifier.getFullName());
+            }
+        } catch (IOException e) {
+            LOG.warn(
+                    "Failed to move table {} to trash, will delete permanently",
+                    identifier.getFullName(),
+                    e);
+        }
     }
 
     protected boolean tableExists(Identifier identifier) {

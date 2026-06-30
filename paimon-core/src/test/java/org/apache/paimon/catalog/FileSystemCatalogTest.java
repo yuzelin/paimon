@@ -18,7 +18,9 @@
 
 package org.apache.paimon.catalog;
 
+import org.apache.paimon.fs.FileStatus;
 import org.apache.paimon.fs.Path;
+import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.types.DataTypes;
@@ -28,6 +30,7 @@ import org.apache.paimon.shade.guava30.com.google.common.collect.Lists;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Tests for {@link FileSystemCatalog}. */
@@ -76,5 +79,105 @@ public class FileSystemCatalogTest extends CatalogTestBase {
                                         Lists.newArrayList(PropertyChange.removeProperty("a")),
                                         false))
                 .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    private Catalog createCatalogWithTrash() {
+        Options options = new Options();
+        options.set(CatalogOptions.TRASH_ENABLED, true);
+        return new FileSystemCatalog(fileIO, new Path(warehouse), CatalogContext.create(options));
+    }
+
+    @Test
+    public void testDropTableWithTrashEnabled() throws Exception {
+        Catalog trashCatalog = createCatalogWithTrash();
+        trashCatalog.createDatabase("test_db", false);
+
+        Identifier identifier = Identifier.create("test_db", "table_to_trash");
+        trashCatalog.createTable(identifier, DEFAULT_TABLE_SCHEMA, false);
+
+        Path tablePath = ((FileSystemCatalog) trashCatalog).getTableLocation(identifier);
+        assertThat(fileIO.exists(tablePath)).isTrue();
+
+        trashCatalog.dropTable(identifier, false);
+
+        // table should no longer exist at original location
+        assertThat(fileIO.exists(tablePath)).isFalse();
+
+        // table should be in trash
+        Path trashDir = new Path(warehouse, ".trash");
+        assertThat(fileIO.exists(trashDir)).isTrue();
+        Path trashDbPath = new Path(trashDir, "test_db" + Catalog.DB_SUFFIX);
+        Path trashTablePath = new Path(trashDbPath, "table_to_trash");
+        assertThat(fileIO.exists(trashTablePath)).isTrue();
+
+        trashCatalog.close();
+    }
+
+    @Test
+    public void testDropTableWithTrashDisabled() throws Exception {
+        catalog.createDatabase("test_db", false);
+
+        Identifier identifier = Identifier.create("test_db", "table_no_trash");
+        catalog.createTable(identifier, DEFAULT_TABLE_SCHEMA, false);
+
+        Path tablePath = ((FileSystemCatalog) catalog).getTableLocation(identifier);
+        assertThat(fileIO.exists(tablePath)).isTrue();
+
+        catalog.dropTable(identifier, false);
+
+        // table should be permanently deleted
+        assertThat(fileIO.exists(tablePath)).isFalse();
+        // no trash directory should exist
+        Path trashDir = new Path(warehouse, ".trash");
+        assertThat(fileIO.exists(trashDir)).isFalse();
+    }
+
+    @Test
+    public void testDropTableWithTrashNameCollision() throws Exception {
+        Catalog trashCatalog = createCatalogWithTrash();
+        trashCatalog.createDatabase("test_db", false);
+
+        Identifier identifier = Identifier.create("test_db", "collision_table");
+
+        // drop the same-named table twice
+        trashCatalog.createTable(identifier, DEFAULT_TABLE_SCHEMA, false);
+        trashCatalog.dropTable(identifier, false);
+
+        trashCatalog.createTable(identifier, DEFAULT_TABLE_SCHEMA, false);
+        trashCatalog.dropTable(identifier, false);
+
+        // both should exist in trash (second with epoch millis suffix)
+        Path trashDir = new Path(warehouse, ".trash");
+        Path trashDbPath = new Path(trashDir, "test_db" + Catalog.DB_SUFFIX);
+        FileStatus[] trashEntries = fileIO.listStatus(trashDbPath);
+        assertThat(trashEntries.length).isEqualTo(2);
+
+        trashCatalog.close();
+    }
+
+    @Test
+    public void testDropTableWithCustomTrashDir() throws Exception {
+        String customTrashDir = tempFile.resolve("custom-trash").toUri().toString();
+        Options options = new Options();
+        options.set(CatalogOptions.TRASH_ENABLED, true);
+        options.set(CatalogOptions.TRASH_DIR, customTrashDir);
+        Catalog trashCatalog =
+                new FileSystemCatalog(fileIO, new Path(warehouse), CatalogContext.create(options));
+        trashCatalog.createDatabase("test_db", false);
+
+        Identifier identifier = Identifier.create("test_db", "custom_trash_table");
+        trashCatalog.createTable(identifier, DEFAULT_TABLE_SCHEMA, false);
+        trashCatalog.dropTable(identifier, false);
+
+        Path trashTablePath =
+                new Path(
+                        new Path(customTrashDir, "test_db" + Catalog.DB_SUFFIX),
+                        "custom_trash_table");
+        assertThat(fileIO.exists(trashTablePath)).isTrue();
+
+        // default trash dir should not exist
+        assertThat(fileIO.exists(new Path(warehouse, ".trash"))).isFalse();
+
+        trashCatalog.close();
     }
 }

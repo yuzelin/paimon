@@ -243,4 +243,23 @@ public class CatalogOptions {
                     .withDescription(
                             "Comma-separated list of file types to cache. "
                                     + "Supported values: meta, global-index, bucket-index, data, file-index.");
+
+    public static final ConfigOption<Boolean> TRASH_ENABLED =
+            key("trash.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to move table data to a trash directory instead of "
+                                    + "permanently deleting it when dropping a table. "
+                                    + "When enabled, dropped table data can be recovered manually "
+                                    + "from the trash directory.");
+
+    public static final ConfigOption<String> TRASH_DIR =
+            key("trash.dir")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The directory for storing dropped table data. "
+                                    + "Defaults to '<warehouse>/.trash' if not specified. "
+                                    + "Only takes effect when 'trash.enabled' is set to true.");
 }
