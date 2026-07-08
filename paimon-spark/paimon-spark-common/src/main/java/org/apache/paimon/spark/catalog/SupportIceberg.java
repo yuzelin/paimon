@@ -40,7 +40,8 @@ import java.util.Map;
 public abstract class SupportIceberg extends SupportLance {
 
     protected boolean isIcebergTable(Map<String, String> properties) {
-        boolean isIcebergTable = properties.getOrDefault("provider", "").equals("iceberg");
+        boolean isIcebergTable =
+                properties.getOrDefault("provider", "").equalsIgnoreCase("iceberg");
         return IcebergCatalogUtils.usingIceberg(isIcebergTable);
     }
 
