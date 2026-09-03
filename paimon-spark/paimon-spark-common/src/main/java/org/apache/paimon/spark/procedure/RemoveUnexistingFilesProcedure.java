@@ -87,15 +87,14 @@ public class RemoveUnexistingFilesProcedure extends BaseProcedure {
                 "Cannot handle an empty tableId for argument %s",
                 PARAMETERS[0].name());
         org.apache.paimon.catalog.Identifier identifier =
-                org.apache.paimon.catalog.Identifier.fromString(
-                        toIdentifier(args.getString(0), PARAMETERS[0].name()).toString());
+                org.apache.paimon.spark.utils.CatalogUtils.toIdentifier(
+                        toIdentifier(tableId, PARAMETERS[0].name()), tableCatalog().name());
         LOG.info("identifier is {}.", identifier);
 
         String[] result =
                 SparkRemoveUnexistingFiles.execute(
                         ((WithPaimonCatalog) tableCatalog()).paimonCatalog(),
-                        identifier.getDatabaseName(),
-                        identifier.getTableName(),
+                        identifier,
                         !args.isNullAt(1) && args.getBoolean(1),
                         args.isNullAt(2) ? null : args.getInt(2));
         return Arrays.stream(result)

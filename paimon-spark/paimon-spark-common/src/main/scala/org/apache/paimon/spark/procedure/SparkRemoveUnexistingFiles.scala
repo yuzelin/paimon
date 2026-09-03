@@ -112,8 +112,7 @@ object SparkRemoveUnexistingFiles extends SQLConfHelper {
 
   def execute(
       catalog: Catalog,
-      databaseName: String,
-      tableName: String,
+      identifier: Identifier,
       dryRun: Boolean,
       parallelismOpt: Integer): Array[String] = {
     val spark = PaimonSparkSession.active
@@ -123,7 +122,6 @@ object SparkRemoveUnexistingFiles extends SQLConfHelper {
       parallelismOpt.intValue()
     }
 
-    val identifier = new Identifier(databaseName, tableName)
     val table = catalog.getTable(identifier)
     assert(
       table.isInstanceOf[FileStoreTable],

@@ -18,6 +18,8 @@
 
 package org.apache.paimon.spark.procedure
 
+import org.apache.paimon.fs.Path
+import org.apache.paimon.fs.local.LocalFileIO
 import org.apache.paimon.operation.ListUnexistingFilesTest
 import org.apache.paimon.spark.PaimonSparkTestBase
 
@@ -46,6 +48,56 @@ class RemoveUnexistingFilesProcedureTest extends PaimonSparkTestBase {
 
   test("Paimon procedure: remove unexisting files, bucket = 3") {
     testImpl(3)
+  }
+
+  test("Paimon procedure: remove unexisting files from branch") {
+    val warehouse = tempDBDir.getCanonicalPath
+    val numPartitions = 2
+    val numFiles = 10
+    val numDeletes = new Array[Int](numPartitions)
+    val tableName = "t_" + UUID.randomUUID().toString.replace("-", "_")
+    val table = ListUnexistingFilesTest.prepareRandomlyDeletedTable(
+      warehouse,
+      "mydb",
+      tableName,
+      3,
+      numFiles,
+      numDeletes,
+      false)
+
+    if (numDeletes.sum == 0) {
+      val bucketPath = new Path(table.location(), "pt=0/bucket-0")
+      val dataFile = LocalFileIO
+        .create()
+        .listStatus(bucketPath)
+        .map(_.getPath)
+        .find(_.getName.startsWith("data-"))
+        .get
+      LocalFileIO.create().deleteQuietly(dataFile)
+      numDeletes(0) += 1
+    }
+
+    table.createTag("branch_base")
+    table.createBranch("rt", "branch_base")
+
+    spark.sql("CREATE DATABASE IF NOT EXISTS mydb")
+    val mainTable = s"mydb.$tableName"
+    val branchTable = s"mydb.`$tableName$$branch_rt`"
+    def dryRun(tableIdentifier: String): Set[String] = {
+      spark
+        .sql(s"CALL sys.remove_unexisting_files(table => '$tableIdentifier', dry_run => true)")
+        .collect()
+        .map(_.getString(0))
+        .toSet
+    }
+
+    val missingFiles = dryRun(branchTable)
+    assert(missingFiles.size == numDeletes.sum)
+
+    spark.sql(s"CALL sys.remove_unexisting_files(table => '$branchTable')").collect()
+
+    assert(dryRun(branchTable).isEmpty)
+    assert(dryRun(mainTable) == missingFiles)
   }
 
   private def testImpl(bucket: Int): Unit = {
